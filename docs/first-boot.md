@@ -46,9 +46,27 @@ network and your DAC contend for the same controller. Wi-Fi is on SDIO and
 avoids that entirely. Start with whichever is convenient — if you hear
 dropouts, [troubleshooting.md](troubleshooting.md) covers switching.
 
-Power matters on this board: the Pi 3B wants a **2.5 A** micro-USB supply, and
-a bus-powered DAC draws from the same budget. Undervoltage shows up as
-mysterious instability rather than an obvious error.
+### Power: use a real supply
+
+The Pi 3B wants a **5.1 V / 2.5 A** micro-USB supply, and a bus-powered DAC
+draws from the same budget.
+
+**Do not power it from a router's, monitor's, or computer's USB port.** Those
+typically supply 0.5 A (USB 2.0) or around 0.9 A (USB 3.0) — enough for the Pi
+to boot and idle, which is what makes this trap so easy to fall into, but not
+enough once a DAC is attached and actually streaming.
+
+Undervoltage on a Pi 3B does not announce itself with a clean error. It
+presents as precisely the symptoms this whole build exists to avoid: dropouts,
+stalls, random instability — plus a genuine risk of SD card corruption. You can
+lose evenings to it.
+
+The official Raspberry Pi supply is the safe choice. Check for it any time
+something is odd:
+
+```bash
+vcgencmd get_throttled     # 0x0 is what you want; anything else is undervoltage
+```
 
 ## 3. Confirm you can reach it
 
