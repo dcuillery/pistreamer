@@ -1,0 +1,139 @@
+---
+# The part that earns its keep on a Pi 3 Model B.
+#
+# Context: on this board the ethernet port and all four USB ports share one
+# USB 2.0 bus behind a LAN9514 hub. Bandwidth is not the constraint (stereo
+# 24/192 is ~9.2 Mbit/s against 480 Mbit/s); interrupt latency and bus
+# contention are. Everything below is aimed at latency, not throughput.
+
+# --- Boot configuration -----------------------------------------------------
+# Silence every audio device that isn't the DAC, so the USB device is
+# unambiguously the only card and enumerates predictably.
+#
+# Stock Pi OS config.txt already ships `dtparam=audio=on` and
+# `dtoverlay=vc4-kms-v3d`. Appending contradictory directives below them is
+# fragile — a duplicated dtoverlay line is an error, and relying on
+# last-one-wins for dtparam is the kind of thing that quietly stops being true.
+# So these two are edited in place, and only genuinely additive settings go in
+# the managed block.
+
+- name: Turn off onboard analog audio
+  ansible.builtin.lineinfile:
+    path: "{{ boot_dir }}/config.txt"
+    regexp: '^\s*#?\s*dtparam=audio='
+    line: 'dtparam=audio=off'
+    backrefs: false
+  when: disable_onboard_audio | bool
+  notify: Flag reboot required
+
+- name: Turn off HDMI audio on the existing KMS overlay
+  ansible.builtin.replace:
+    path: "{{ boot_dir }}/config.txt"
+    regexp: '^(\s*dtoverlay=vc4-kms-v3d)(?!.*noaudio)(.*)$'
+    replace: '\1\2,noaudio'
+  when: disable_hdmi_audio | bool
+  notify: Flag reboot required
+
+- name: Apply additive boot settings
+  ansible.builtin.blockinfile:
+    path: "{{ boot_dir }}/config.txt"
+    marker: "# {mark} PISTREAMER"
+    block: |
+      {% if disable_bluetooth | bool %}
+      # No use for Bluetooth on a streamer, and its interrupts aren't free.
+      dtoverlay=disable-bt
+      {% endif %}
+      # Headless: the GPU needs the minimum. Frees RAM on a 1 GB board.
+      gpu_mem={{ gpu_mem }}
+    create: false
+  notify: Flag reboot required
+
+- name: Disable the Bluetooth UART service
+  ansible.builtin.systemd:
+    name: hciuart
+    enabled: false
+    state: stopped
+  failed_when: false
+  when: disable_bluetooth | bool
+
+# --- Opt-in USB driver tunable ---------------------------------------------
+# Off by default. This is a workaround for a specific failure mode, and
+# applying it pre-emptively makes a later diagnosis harder to reason about.
+
+# cmdline.txt is a single line, and a malformed edit yields a Pi that will not
+# boot. So rather than pattern-patching in place, read it, strip any parameter
+# we manage, re-add it if wanted, and write the result back. Idempotent in
+# both directions and easy to reason about.
+
+- name: Read the kernel command line
+  ansible.builtin.slurp:
+    src: "{{ boot_dir }}/cmdline.txt"
+  register: cmdline_raw
+
+- name: Compute the desired kernel command line
+  ansible.builtin.set_fact:
+    cmdline_desired: >-
+      {{ (
+           (cmdline_raw.content | b64decode | trim
+             | regex_replace('\s*dwc_otg\.fiq_fsm_mask=\S+', ''))
+           ~ (' dwc_otg.fiq_fsm_mask=' ~ usb_fiq_fsm_mask if usb_fiq_fsm_mask | length > 0 else '')
+         ) | regex_replace('\s+', ' ') | trim }}
+
+- name: Write the kernel command line
+  ansible.builtin.copy:
+    content: "{{ cmdline_desired }}\n"
+    dest: "{{ boot_dir }}/cmdline.txt"
+    mode: "0755"
+    backup: true
+  notify: Flag reboot required
+
+# --- CPU governor -----------------------------------------------------------
+# On-demand scaling adds latency spikes exactly when a buffer needs refilling.
+# That is a classic source of intermittent crackle on the Pi.
+
+- name: Pin the CPU governor
+  ansible.builtin.lineinfile:
+    path: /etc/default/cpufrequtils
+    regexp: '^GOVERNOR='
+    line: 'GOVERNOR="{{ cpu_governor }}"'
+    create: true
+    mode: "0644"
+  notify: Restart cpufrequtils
+
+# --- Realtime scheduling ----------------------------------------------------
+# Lets the playback thread hold its deadline when something else gets busy.
+
+- name: Grant realtime scheduling to the audio group
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/95-pistreamer-audio.conf
+    mode: "0644"
+    content: |
+      # Managed by pistreamer.
+      # Realtime priority and locked memory for audio playback threads.
+      @audio   -   rtprio      {{ rt_priority }}
+      @audio   -   memlock     unlimited
+      @audio   -   nice        -19
+  when: enable_rt_limits | bool
+
+- name: Put the service user in the audio group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: audio
+    append: true
+
+# --- Wi-Fi ------------------------------------------------------------------
+# Power saving parks the radio between packets; the wake-up latency surfaces
+# as periodic dropouts. On a Pi 3B, Wi-Fi is on SDIO rather than the shared
+# USB bus, which makes it a genuinely useful fallback if the DAC misbehaves
+# on ethernet.
+
+- name: Disable Wi-Fi power saving
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/10-pistreamer-no-powersave.conf
+    mode: "0644"
+    content: |
+      # Managed by pistreamer.
+      [connection]
+      wifi.powersave = 2
+  when: wifi_disable_powersave | bool
+  notify: Restart NetworkManager

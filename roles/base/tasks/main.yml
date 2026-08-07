@@ -1,0 +1,73 @@
+---
+# OS hygiene: name it, keep it reachable, and stop it chewing through the SD card.
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ streamer_hostname }}"
+
+- name: Keep /etc/hosts consistent with the hostname
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1\t{{ streamer_hostname }}"
+
+# Done with timedatectl rather than community.general.timezone so the repo
+# needs no collections beyond ansible-core.
+- name: Read the current timezone
+  ansible.builtin.command: timedatectl show -p Timezone --value
+  register: current_tz
+  changed_when: false
+
+- name: Set timezone
+  ansible.builtin.command: "timedatectl set-timezone {{ streamer_timezone }}"
+  when: current_tz.stdout != streamer_timezone
+  changed_when: true
+
+- name: Install the packages a streamer needs
+  ansible.builtin.apt:
+    name:
+      - alsa-utils        # aplay/amixer — how we enumerate the DAC
+      - avahi-daemon      # mDNS, so streamer.local resolves
+      - cpufrequtils      # governor pinning
+      - ca-certificates
+      - curl
+    state: present
+
+- name: Remove packages that only add jitter and attack surface
+  ansible.builtin.apt:
+    name:
+      - triggerhappy
+      - modemmanager
+    state: absent
+    purge: true
+
+- name: Ensure mDNS is running so streamer.local resolves
+  ansible.builtin.systemd:
+    name: avahi-daemon
+    enabled: true
+    state: started
+
+# Swapping to an SD card stalls audio and wears the card. With one small
+# daemon on 1 GB there is nothing to gain from keeping it.
+- name: Disable swap
+  when: disable_swap | bool
+  block:
+    - name: Stop dphys-swapfile
+      ansible.builtin.systemd:
+        name: dphys-swapfile
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Tear down the swapfile
+      ansible.builtin.command: dphys-swapfile swapoff
+      register: swapoff
+      changed_when: "'swapoff' in swapoff.stdout | default('')"
+      failed_when: false
+
+- name: Cap journald so logs cannot fill the card
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/journald.conf
+    regexp: '^#?SystemMaxUse='
+    line: "SystemMaxUse={{ journald_max_use }}"
+  notify: Restart journald

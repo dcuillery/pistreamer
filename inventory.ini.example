@@ -1,0 +1,12 @@
+# Copy to inventory.ini and edit. inventory.ini is gitignored — it holds your
+# host address and username.
+#
+# `streamer.local` works if mDNS is up (it is, after first boot with Pi OS).
+# If name resolution is flaky, put the IP address here instead.
+
+[streamers]
+streamer.local
+
+[streamers:vars]
+ansible_user=pi
+ansible_python_interpreter=/usr/bin/python3

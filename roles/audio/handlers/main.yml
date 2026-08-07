@@ -1,0 +1,17 @@
+---
+- name: Flag reboot required
+  ansible.builtin.set_fact:
+    reboot_required: true
+
+- name: Restart cpufrequtils
+  ansible.builtin.systemd:
+    name: cpufrequtils
+    state: restarted
+    enabled: true
+  failed_when: false
+
+- name: Restart NetworkManager
+  ansible.builtin.systemd:
+    name: NetworkManager
+    state: restarted
+  failed_when: false

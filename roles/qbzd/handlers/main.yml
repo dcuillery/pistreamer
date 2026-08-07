@@ -1,0 +1,11 @@
+---
+- name: Restart qbzd
+  ansible.builtin.systemd:
+    name: qbzd
+    scope: user
+    state: restarted
+    daemon_reload: true
+  become: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ qbzd_uid.stdout | default(1000) }}"
+  failed_when: false

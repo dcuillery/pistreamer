@@ -1,0 +1,170 @@
+---
+# Install and service the Qobuz Connect endpoint.
+#
+# Note what this role deliberately does NOT do: write ~/.config/qbz/qbzd.toml.
+# The project does not publish that file's schema, and a config with
+# plausible-but-wrong keys fails silently — you would get audio, but
+# resampled, with no obvious symptom. Audio configuration is handed to the
+# tool's own six-screen wizard instead (`make setup`). See README.
+
+- name: Warn when the release would be fetched unverified
+  ansible.builtin.debug:
+    msg: >-
+      qbzd_sha256 is empty, so the release tarball will be installed without
+      integrity verification. See docs/first-boot.md.
+  when: qbzd_sha256 | length == 0
+
+- name: Check the installed version
+  ansible.builtin.command: "{{ qbzd_bin }} --version"
+  register: qbzd_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install qbzd from the pinned release
+  when: qbzd_version not in (qbzd_installed.stdout | default(''))
+  block:
+    - name: Create a staging directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: qbzd
+      register: qbzd_stage
+
+    - name: Download the release tarball
+      ansible.builtin.get_url:
+        url: "{{ qbzd_url }}"
+        dest: "{{ qbzd_stage.path }}/{{ qbzd_tarball }}"
+        checksum: "{{ ('sha256:' + qbzd_sha256) if qbzd_sha256 | length > 0 else omit }}"
+        mode: "0644"
+
+    - name: Unpack it
+      ansible.builtin.unarchive:
+        src: "{{ qbzd_stage.path }}/{{ qbzd_tarball }}"
+        dest: "{{ qbzd_stage.path }}"
+        remote_src: true
+
+    # Locate rather than assume — the archive's internal layout carries a
+    # version-stamped directory name.
+    - name: Locate the payload inside the archive
+      ansible.builtin.find:
+        paths: "{{ qbzd_stage.path }}"
+        patterns: "qbzd,qbzd.service"
+        recurse: true
+        file_type: file
+      register: qbzd_found
+
+    - name: Fail clearly if the archive layout changed
+      ansible.builtin.assert:
+        that:
+          - qbzd_found.files | selectattr('path', 'search', '/qbzd$') | list | length > 0
+          - qbzd_found.files | selectattr('path', 'search', 'qbzd.service$') | list | length > 0
+        fail_msg: >-
+          {{ qbzd_tarball }} did not contain both 'qbzd' and 'qbzd.service'.
+          The release layout may have changed for version {{ qbzd_version }}.
+
+    # /usr/bin, not /usr/local/bin: the shipped unit hardcodes
+    # ExecStart=/usr/bin/qbzd run, and upstream documents this path.
+    - name: Install the binary
+      ansible.builtin.copy:
+        src: "{{ (qbzd_found.files | selectattr('path', 'search', '/qbzd$') | list | first).path }}"
+        dest: "{{ qbzd_bin }}"
+        mode: "0755"
+        owner: root
+        group: root
+        remote_src: true
+      notify: Restart qbzd
+
+    - name: Install the shipped systemd user unit
+      ansible.builtin.copy:
+        src: "{{ (qbzd_found.files | selectattr('path', 'search', 'qbzd.service$') | list | first).path }}"
+        dest: /usr/lib/systemd/user/qbzd.service
+        mode: "0644"
+        owner: root
+        group: root
+        remote_src: true
+      notify: Restart qbzd
+
+    - name: Install bash completions
+      ansible.builtin.copy:
+        src: "{{ qbzd_stage.path }}/qbzd-{{ qbzd_version }}-linux-aarch64/completions/qbzd.bash"
+        dest: /usr/share/bash-completion/completions/qbzd
+        mode: "0644"
+        remote_src: true
+      failed_when: false
+
+  always:
+    - name: Clean up staging
+      ansible.builtin.file:
+        path: "{{ qbzd_stage.path }}"
+        state: absent
+      when: qbzd_stage.path is defined
+
+# --- Realtime scheduling for the daemon -------------------------------------
+# systemd does NOT read /etc/security/limits.conf for services, so the limits
+# set in the audio role do not by themselves reach this daemon. Two pieces are
+# needed and both matter:
+#
+#   1. limits.d (audio role) — pam_limits raises the HARD limit when the
+#      user@.service session is created.
+#   2. this drop-in — raises the SOFT limit for the service itself, which can
+#      only go as high as the hard limit above.
+#
+# Without the drop-in the daemon runs with rtprio 0 and cannot request
+# realtime scheduling at all.
+
+- name: Grant the daemon realtime scheduling headroom
+  when: enable_rt_limits | bool
+  block:
+    - name: Create the unit drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/user/qbzd.service.d
+        state: directory
+        mode: "0755"
+
+    - name: Write the realtime drop-in
+      ansible.builtin.copy:
+        dest: /etc/systemd/user/qbzd.service.d/10-pistreamer-rt.conf
+        mode: "0644"
+        content: |
+          # Managed by pistreamer.
+          # systemd ignores /etc/security/limits.conf for services; these are
+          # the equivalents that actually apply to the daemon.
+          [Service]
+          LimitRTPRIO={{ rt_priority }}
+          LimitMEMLOCK=infinity
+      notify: Restart qbzd
+
+# --- Service ----------------------------------------------------------------
+# qbzd runs as a *user* service. Without lingering, systemd tears down the
+# user session — and the daemon with it — the moment the SSH connection
+# closes. The streamer would work right up until you disconnected.
+# `qbzd status` warns when linger is off.
+
+- name: Enable lingering so the daemon survives logout
+  ansible.builtin.command: "loginctl enable-linger {{ ansible_user }}"
+  args:
+    creates: "/var/lib/systemd/linger/{{ ansible_user }}"
+
+- name: Resolve the user's uid
+  ansible.builtin.command: id -u
+  become: false
+  register: qbzd_uid
+  changed_when: false
+
+- name: Enable and start qbzd
+  ansible.builtin.systemd:
+    name: qbzd
+    scope: user
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ qbzd_uid.stdout }}"
+
+- name: Report how to finish setup
+  ansible.builtin.debug:
+    msg:
+      - "qbzd {{ qbzd_version }} installed and running."
+      - "Finish interactively:  make dacs   then   make setup"
+      - "`qbzd setup` is a six-screen wizard: Qobuz login, audio device, Connect name."
+      - "Then pick '{{ streamer_hostname }}' from the Connect menu in any Qobuz app."

@@ -1,0 +1,67 @@
+---
+# ============================================================================
+# pistreamer — all tunables
+# Target: Raspberry Pi 3 Model B v1.2, Raspberry Pi OS Lite 64-bit
+# ============================================================================
+
+# --- Identity ---------------------------------------------------------------
+streamer_hostname: streamer
+streamer_timezone: Europe/Paris
+
+# --- qbzd: the Qobuz Connect endpoint ---------------------------------------
+# Pinned deliberately. The Connect protocol is reverse-engineered, so an
+# unattended upgrade is a plausible way to wake up to a device that no longer
+# appears in the Qobuz app. Bump this consciously, then `make upgrade`.
+qbzd_version: "2.0.2"
+qbzd_tarball: "qbzd-{{ qbzd_version }}-linux-aarch64.tar.gz"
+qbzd_url: "https://github.com/vicrodh/qbz/releases/download/v{{ qbzd_version }}/{{ qbzd_tarball }}"
+
+# SHA-256 of the tarball above, verified against the published v2.0.2 asset.
+# Re-record this whenever you bump qbzd_version — see docs/first-boot.md.
+qbzd_sha256: "adade56509544c00187476d58acef78538d3e5d475370263d98397dc61f200c9"
+
+# /usr/bin, not /usr/local/bin: the unit shipped inside the tarball hardcodes
+# ExecStart=/usr/bin/qbzd run, and that is the path upstream documents.
+qbzd_bin: /usr/bin/qbzd
+
+# --- Audio ------------------------------------------------------------------
+# Silence every audio device that isn't your DAC. With these off, the USB DAC
+# is the only card in the system and enumerates predictably as card 0.
+disable_onboard_audio: true
+disable_hdmi_audio: true
+
+# 'performance' keeps the CPU from downclocking between buffer refills.
+# Frequency-scaling latency is a classic cause of intermittent crackle.
+cpu_governor: performance
+
+# Realtime scheduling for the audio group, so the playback thread can hold
+# its deadline when something else on the box gets busy.
+enable_rt_limits: true
+rt_priority: 95
+
+# Headless: the GPU needs the bare minimum. Frees RAM on a 1 GB board.
+gpu_mem: 16
+
+# --- USB tuning (opt-in) ----------------------------------------------------
+# The Pi 3B's dwc_otg USB driver uses a FIQ state machine for split
+# transactions. Some USB DACs misbehave with the default mask (0x7); masking
+# it to 0x3 is a widely-used remedy for crackle on this board.
+#
+# It is OFF by default because it is a workaround, not a universal
+# improvement, and applying it blind makes later diagnosis harder. Turn it on
+# only if you actually hear dropouts. See docs/troubleshooting.md.
+usb_fiq_fsm_mask: ""        # e.g. "0x3"
+
+# --- Network ----------------------------------------------------------------
+# Wi-Fi power saving parks the radio between packets. The wake-up latency
+# shows up as periodic dropouts, so it stays off on a streamer.
+wifi_disable_powersave: true
+
+# A streamer has no use for Bluetooth, and its interrupts share the SoC.
+disable_bluetooth: true
+
+# --- SD card care -----------------------------------------------------------
+# 1 GB is plentiful for a single daemon. Swapping to an SD card stalls audio
+# and wears the card out, so there is nothing to gain by keeping it.
+disable_swap: true
+journald_max_use: 50M

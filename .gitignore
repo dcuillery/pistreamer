@@ -1,0 +1,7 @@
+# Holds your host address and username
+inventory.ini
+
+# Ansible noise
+*.retry
+.ansible/
+*.log

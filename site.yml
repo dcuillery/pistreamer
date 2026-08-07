@@ -1,0 +1,46 @@
+---
+- name: Provision a Raspberry Pi as a Qobuz Connect streamer
+  hosts: streamers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Refuse to run on a 32-bit userland
+      ansible.builtin.assert:
+        that: ansible_architecture == 'aarch64'
+        fail_msg: >-
+          This host reports architecture '{{ ansible_architecture }}', not aarch64.
+          qbzd ships an aarch64 binary only. Reflash with Raspberry Pi OS Lite
+          (64-bit) — the Pi 3B is ARMv8 and supports it.
+        success_msg: "aarch64 confirmed — qbzd will run here."
+
+    - name: Locate the boot firmware directory
+      ansible.builtin.stat:
+        path: /boot/firmware/config.txt
+      register: boot_firmware
+
+    # Bookworm and later moved the FAT partition to /boot/firmware.
+    - name: Record the boot directory
+      ansible.builtin.set_fact:
+        boot_dir: "{{ '/boot/firmware' if boot_firmware.stat.exists else '/boot' }}"
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+  roles:
+    - role: base
+      tags: [base]
+    - role: audio
+      tags: [audio]
+    - role: qbzd
+      tags: [qbzd]
+
+  post_tasks:
+    - name: Report whether a reboot is outstanding
+      ansible.builtin.debug:
+        msg: >-
+          Boot configuration changed. Run `make reboot`, then `make login`
+          and `make setup` to finish.
+      when: reboot_required is defined and reboot_required
