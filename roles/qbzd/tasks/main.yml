@@ -14,14 +14,31 @@
       integrity verification. See docs/first-boot.md.
   when: qbzd_sha256 | length == 0
 
+# check_mode: false on the read-only probes below — without it the dry run
+# skips them, leaving their registered variables undefined and failing the
+# tasks that depend on them.
 - name: Check the installed version
   ansible.builtin.command: "{{ qbzd_bin }} --version"
   register: qbzd_installed
   changed_when: false
   failed_when: false
+  check_mode: false
 
+- name: Report what a real run would install
+  ansible.builtin.debug:
+    msg: >-
+      Would download and install qbzd {{ qbzd_version }} from {{ qbzd_url }}
+      (currently: {{ qbzd_installed.stdout | default('not installed') | trim }}).
+  when:
+    - ansible_check_mode
+    - qbzd_version not in (qbzd_installed.stdout | default(''))
+
+# Skipped in check mode: downloading and unpacking cannot be meaningfully
+# simulated, and the tasks that follow depend on files this one would create.
 - name: Install qbzd from the pinned release
-  when: qbzd_version not in (qbzd_installed.stdout | default(''))
+  when:
+    - qbzd_version not in (qbzd_installed.stdout | default(''))
+    - not ansible_check_mode
   block:
     - name: Create a staging directory
       ansible.builtin.tempfile:
@@ -149,6 +166,7 @@
   become: false
   register: qbzd_uid
   changed_when: false
+  check_mode: false
 
 - name: Enable and start qbzd
   ansible.builtin.systemd:
@@ -160,6 +178,52 @@
   become: false
   environment:
     XDG_RUNTIME_DIR: "/run/user/{{ qbzd_uid.stdout }}"
+  when: not ansible_check_mode
+
+# --- Declarative settings ---------------------------------------------------
+# Applied through `qbzd settings set`, the tool's own supported interface,
+# rather than by templating ~/.config/qbz/qbzd.toml — whose schema upstream
+# does not publish. Read-modify-compare so runs are idempotent.
+
+- name: Read the current qbzd settings
+  ansible.builtin.command: "{{ qbzd_bin }} settings show"
+  become: false
+  register: qbzd_settings_now
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Parse the current settings
+  ansible.builtin.set_fact:
+    qbzd_current: >-
+      {{ dict(qbzd_settings_now.stdout_lines | default([])
+              | select('search', '=')
+              | map('regex_replace', '^\s*(\S+)\s*=\s*(.*?)\s*$', '\1|\2')
+              | map('split', '|')) }}
+
+- name: Apply qbzd settings
+  ansible.builtin.command:
+    argv:
+      - "{{ qbzd_bin }}"
+      - settings
+      - set
+      - "{{ item.key }}"
+      - "{{ item.value }}"
+  become: false
+  loop: "{{ qbzd_settings | dict2items }}"
+  loop_control:
+    label: "{{ item.key }} = {{ item.value }}"
+  when:
+    - qbzd_settings_now.rc | default(1) == 0
+    - qbzd_current[item.key] | default('__unset__') != (item.value | string)
+  notify: Restart qbzd
+
+- name: Note when settings could not be applied
+  ansible.builtin.debug:
+    msg: >-
+      Could not read qbzd settings — the daemon may not be running yet.
+      Settings will be applied on the next `make provision`.
+  when: qbzd_settings_now.rc | default(1) != 0
 
 - name: Report how to finish setup
   ansible.builtin.debug:

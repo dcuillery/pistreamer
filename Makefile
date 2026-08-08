@@ -7,7 +7,11 @@ SHELL := /bin/bash
 # Mac username and every ssh here would connect as the wrong user.
 PI_HOST := $(shell awk '/^\[streamers\]/{getline; print $$1; exit}' inventory.ini 2>/dev/null)
 PI_USER := $(shell awk -F= '/^ansible_user=/{print $$2; exit}' inventory.ini 2>/dev/null)
-SSH     := ssh -t $(PI_USER)@$(PI_HOST)
+# -t allocates a TTY so `qbzd setup`'s TUI renders.
+# -4 forces IPv4: mDNS also advertises eth0's link-local IPv6, and eth0 has
+# carrier but no usable IP config, so unqualified connections intermittently
+# land on a dead address.
+SSH     := ssh -4 -t $(PI_USER)@$(PI_HOST)
 
 .DEFAULT_GOAL := help
 
@@ -44,8 +48,10 @@ reboot: guard-inventory  ## Reboot the Pi and wait for it to come back
 
 ## ---- Qobuz -----------------------------------------------------------------
 
-dacs: guard-inventory  ## List the ALSA playback devices the Pi can see
-	@$(SSH) 'aplay -l; echo; echo "--- USB audio devices ---"; lsusb | grep -i audio || true'
+dacs: guard-inventory  ## List the ALSA playback devices and their capabilities
+	@$(SSH) 'aplay -l; echo "--- USB devices ---"; lsusb; \
+	  echo "--- supported formats/rates ---"; \
+	  cat /proc/asound/card*/stream0 2>/dev/null || echo "(no USB audio device)"'
 
 setup: guard-inventory  ## Six-screen wizard: Qobuz login, audio device, Connect name
 	$(SSH) 'qbzd setup'
@@ -61,8 +67,14 @@ settings-show: guard-inventory  ## Dump qbzd's live settings keys and values
 status: guard-inventory  ## Daemon state and now-playing
 	@$(SSH) 'systemctl --user status qbzd --no-pager -l; echo; qbzd status; qbzd now || true'
 
+# --user-unit, not `--user -u`: the latter reads the per-user journal, which
+# is empty here, and reports "No journal files were found". The user unit's
+# output actually lands in the system journal.
 logs: guard-inventory  ## Follow the daemon log
-	$(SSH) 'journalctl --user -u qbzd -f'
+	$(SSH) 'journalctl --user-unit qbzd -f'
+
+boots: guard-inventory  ## List previous boots (to spot unclean restarts)
+	@$(SSH) 'journalctl --list-boots --no-pager; echo; uptime -p; vcgencmd get_throttled'
 
 restart: guard-inventory  ## Restart the daemon
 	$(SSH) 'systemctl --user restart qbzd'
@@ -77,4 +89,4 @@ shell: guard-inventory  ## SSH into the Pi
 	$(SSH)
 
 .PHONY: help guard-inventory ping check provision reboot dacs setup login \
-        settings-show status logs restart upgrade hwparams shell
+        settings-show status logs boots restart upgrade hwparams shell

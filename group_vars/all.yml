@@ -24,6 +24,24 @@ qbzd_sha256: "adade56509544c00187476d58acef78538d3e5d475370263d98397dc61f200c9"
 # ExecStart=/usr/bin/qbzd run, and that is the path upstream documents.
 qbzd_bin: /usr/bin/qbzd
 
+# Settings applied declaratively via `qbzd settings set`. The key names were
+# read off a configured device with `qbzd settings show` rather than guessed —
+# see docs/troubleshooting.md. Login stays interactive (OAuth); everything
+# below is reproducible.
+qbzd_settings:
+  audio.backend: alsa                 # not PipeWire/Pulse — no resampling layer
+  # Card-NAME based, not "hw:0,0": survives renumbering if another USB audio
+  # device is ever attached. "system" (the default) routes through ALSA's
+  # default device and silently disables bit-perfect output.
+  audio.device: "hw:CARD=M2496,DEV=0"
+  audio.alsa_plugin: hw               # hw, never plughw — plughw resamples
+  audio.exclusive_mode: "true"        # nothing else may open the card
+  audio.reserve_dac_while_running: "true"
+  audio.limit_quality_to_device: "true"   # V90-DAC tops out at 24/96
+  playback.quality: hires_plus
+  qconnect.device_name: streamer
+  qconnect.startup_mode: "on"
+
 # --- Audio ------------------------------------------------------------------
 # Silence every audio device that isn't your DAC. With these off, the USB DAC
 # is the only card in the system and enumerates predictably as card 0.
@@ -41,6 +59,13 @@ rt_priority: 95
 
 # Headless: the GPU needs the bare minimum. Frees RAM on a 1 GB board.
 gpu_mem: 16
+
+# --- USB power management ---------------------------------------------------
+# The kernel autosuspends idle USB devices after 2 seconds by default. On a
+# DAC that means it gets suspended between tracks: clicks, dropped starts, and
+# on some devices a failure to wake at all. A dedicated streamer has nothing to
+# gain from USB power saving, so it is disabled outright.
+usb_disable_autosuspend: true
 
 # --- USB tuning (opt-in) ----------------------------------------------------
 # The Pi 3B's dwc_otg USB driver uses a FIQ state machine for split
@@ -64,4 +89,9 @@ disable_bluetooth: true
 # 1 GB is plentiful for a single daemon. Swapping to an SD card stalls audio
 # and wears the card out, so there is nothing to gain by keeping it.
 disable_swap: true
+
+# Keep the journal across reboots. Without this it lives in /run and is wiped
+# on every restart, so `journalctl -b -1` — the log of whatever went wrong
+# before the box came back — is simply gone. SystemMaxUse bounds the cost.
+journald_persistent: true
 journald_max_use: 50M

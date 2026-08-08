@@ -137,6 +137,12 @@ confirm the reported rate **changes to match**. If it's pinned at 48000
 regardless of source, something in the path is resampling — go back to
 `make setup` and confirm:
 
+> **On the V90-DAC specifically:** the ceiling is 24-bit/96 kHz, and `format`
+> should read `S24_3LE`. A Qobuz 192 kHz track showing `rate: 96000` is
+> **correct and unavoidable** — the hardware cannot go higher, so something has
+> to downsample. Only worry if a 44.1 or 96 kHz source fails to play back at its
+> own rate.
+
 - Backend is **ALSA** (not PipeWire or Pulse)
 - Output device is the DAC's `hw:` node, not `default` or a `plughw:` alias
 - **Exclusive mode** is on

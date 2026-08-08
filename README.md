@@ -19,9 +19,35 @@ Built and tuned for the board in hand:
 |---|---|
 | **Board** | Raspberry Pi 3 Model B v1.2 |
 | **SoC** | BCM2837, quad-core Cortex-A53 @ 1.2 GHz — **ARMv8, 64-bit capable** |
-| **RAM** | 1 GB |
-| **OS** | Raspberry Pi OS **Lite, 64-bit** (arm64) |
-| **Audio out** | USB DAC (any UAC1/UAC2 class-compliant device) |
+| **RAM** | 1 GB (905 MiB usable) |
+| **OS** | Raspberry Pi OS **Lite, 64-bit** — Debian 13 (trixie), glibc 2.41 |
+| **DAC** | **Musical Fidelity V90-DAC** (`25b0:0010`), class-compliant UAC1 |
+
+All verified on the actual device, 2026-08-07.
+
+### What the V90-DAC actually supports
+
+Read from `/proc/asound/card1/stream0` rather than the marketing copy:
+
+```
+Format: S24_3LE          Rates: 32000, 44100, 48000, 88200, 96000
+Bits: 24                 Endpoint: 0x01 (1 OUT) (ASYNC)
+```
+
+Three consequences worth internalising:
+
+- **The ceiling is 24-bit/96 kHz.** `qbzd` can do 24/192, but this DAC cannot. Qobuz
+  192 kHz tracks *must* be downsampled to 96 kHz — that's a hardware limit, not a
+  misconfiguration. Everything at 96 kHz and below plays bit-perfect.
+- **It's an asynchronous endpoint**, so the DAC owns the clock rather than slaving to the
+  Pi's. That's the good arrangement, and it means jitter is largely the DAC's problem.
+- **It enumerates as USB *full speed* (12 Mbit/s)**, not high speed — normal for UAC1.
+  This one matters more than it looks: full-speed devices behind a high-speed hub require
+  **split transactions**, which on the Pi are handled by the very `dwc_otg` FIQ state
+  machine that the `usb_fiq_fsm_mask` tunable adjusts. If you get crackle, that tunable is
+  a more likely remedy on this pairing than it would be with a high-speed UAC2 DAC.
+  24/96 stereo is ~4.6 Mbit/s against a 12 Mbit/s full-speed budget, so the headroom is
+  real but not lavish.
 
 64-bit matters: `qbzd` ships an `aarch64` binary only. The Pi 3B is ARMv8 so it qualifies.
 A Pi 1, Pi 2, or original Pi Zero W is ARMv6/v7 and **cannot** run this.
@@ -159,25 +185,43 @@ make upgrade   # bump qbzd (set qbzd_version first) and restart
 
 ---
 
-## Why configuration isn't templated
+## How configuration is managed
 
-`qbzd` stores its config at `~/.config/qbz/qbzd.toml`, but **the project does not publish that
-file's schema.** Its supported configuration interfaces are `qbzd setup` and
+`qbzd` stores its config at `~/.config/qbz/qbzd.toml`, but **upstream does not publish that
+file's schema.** Its supported interfaces are `qbzd setup` (a TUI) and
 `qbzd settings set <key> <value>`.
 
-Writing a `qbzd.toml` template here would mean inventing key names, and a config file with
-plausible-but-wrong keys fails silently — you'd get sound, but resampled, and you would have no
-obvious way to tell. So this repo deliberately stops at installing, servicing and hardening the
-daemon, and hands the audio configuration to the tool's own wizard.
+So this repo does not template `qbzd.toml` — inventing key names would produce a config that
+fails *silently*. Instead the key names were read off a configured device with
+`qbzd settings show`, and `group_vars/all.yml` now applies them declaratively through
+`qbzd settings set`. The role reads current values first and only writes the ones that differ,
+so `make provision` stays idempotent.
 
-Once you've run `make setup`, you can capture what it produced:
+Only the **Qobuz login** remains interactive, because it's browser-based OAuth — that's
+`make setup`, and it's a one-time step.
 
-```bash
-make settings-show    # dumps the live keys and values
+### The failure this is guarding against
+
+Worth understanding, because it cost real debugging time here. After running the wizard, the
+daemon reported:
+
+```
+audio : alsa (system default) · bit-perfect: Disabled · 44100 Hz / 24-bit
 ```
 
-With real key names in hand, that step can be codified into the `qbzd` role later, and
-`make settings-show` is there precisely to make that easy.
+`audio.backend` was `alsa`, `audio.alsa_plugin` was `hw`, `audio.exclusive_mode` was `true` —
+everything looked right. But `audio.device` was **`system`**, ALSA's default device, which
+routes through the software mixer. Music played perfectly. It simply wasn't bit-perfect, and
+nothing announced that.
+
+Setting `audio.device` to the card's `hw:` node flipped it to:
+
+```
+audio : alsa hw:CARD=M2496,DEV=0 · present · bit-perfect: DirectHardware
+```
+
+That is the entire reason `make hwparams` exists and the reason these values are pinned in
+version control rather than left as wizard state.
 
 ---
 

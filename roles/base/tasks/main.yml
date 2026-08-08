@@ -5,18 +5,19 @@
   ansible.builtin.hostname:
     name: "{{ streamer_hostname }}"
 
-- name: Keep /etc/hosts consistent with the hostname
-  ansible.builtin.lineinfile:
-    path: /etc/hosts
-    regexp: '^127\.0\.1\.1\s'
-    line: "127.0.1.1\t{{ streamer_hostname }}"
+# /etc/hosts is deliberately left alone: cloud-init manages it on Pi OS and
+# rewrites the 127.0.1.1 entry, so editing it here would report "changed" on
+# every run and get reverted anyway. Pi OS already resolves the hostname.
 
 # Done with timedatectl rather than community.general.timezone so the repo
 # needs no collections beyond ansible-core.
+# check_mode: false — this only reads, and without it the dry run skips the
+# task, leaving current_tz undefined and breaking everything downstream.
 - name: Read the current timezone
   ansible.builtin.command: timedatectl show -p Timezone --value
   register: current_tz
   changed_when: false
+  check_mode: false
 
 - name: Set timezone
   ansible.builtin.command: "timedatectl set-timezone {{ streamer_timezone }}"
@@ -28,7 +29,7 @@
     name:
       - alsa-utils        # aplay/amixer — how we enumerate the DAC
       - avahi-daemon      # mDNS, so streamer.local resolves
-      - cpufrequtils      # governor pinning
+      - iw                # to verify Wi-Fi power saving is actually off
       - ca-certificates
       - curl
     state: present
@@ -65,9 +66,27 @@
       changed_when: "'swapoff' in swapoff.stdout | default('')"
       failed_when: false
 
-- name: Cap journald so logs cannot fill the card
+# Pi OS keeps the journal in /run by default, so it is wiped on every restart
+# and `journalctl -b -1` shows nothing. On an appliance that drops off the
+# network or loses power, the previous boot's log is precisely the evidence you
+# need — a diagnosis tool that forgets across a reboot is no diagnosis tool.
+# SystemMaxUse below bounds the SD-card cost.
+- name: Make the journal survive reboots
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+  when: journald_persistent | bool
+  notify: Restart journald
+
+- name: Configure journald storage and size cap
   ansible.builtin.lineinfile:
     path: /etc/systemd/journald.conf
-    regexp: '^#?SystemMaxUse='
-    line: "SystemMaxUse={{ journald_max_use }}"
+    regexp: "^#?{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+  loop:
+    - { key: "Storage", value: "{{ 'persistent' if journald_persistent | bool else 'volatile' }}" }
+    - { key: "SystemMaxUse", value: "{{ journald_max_use }}" }
   notify: Restart journald
