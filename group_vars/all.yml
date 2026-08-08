@@ -39,8 +39,9 @@ qbzd_settings:
   audio.reserve_dac_while_running: "true"
   audio.limit_quality_to_device: "true"   # V90-DAC tops out at 24/96
   playback.quality: hires_plus
-  qconnect.device_name: streamer
+  qconnect.device_name: "Pi Streamer"
   qconnect.startup_mode: "on"
+  qconnect.volume_mode: "software" # ("locked" or "software")
 
 # --- Audio ------------------------------------------------------------------
 # Silence every audio device that isn't your DAC. With these off, the USB DAC
