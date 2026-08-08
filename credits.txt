@@ -1,5 +1,31 @@
-Damien CUILLERY
-MS C.S.
-damien.cuillery@gmail.com
-All rights reserved
-(c)2026
+pistreamer — a headless Qobuz Connect endpoint for Raspberry Pi
+
+Author
+    Damien CUILLERY, MS C.S.
+    damien.cuillery@gmail.com
+
+Copyright (c) 2026 Damien Cuillery
+Licensed under the MIT License — see LICENSE for the full text.
+
+Third-party components
+    This project bundles no third-party code. Components are fetched at
+    provision time from their own official sources.
+
+    QBZ / qbzd — the Qobuz Connect endpoint this project configures.
+        MIT License, Copyright (c) 2024 blitzkriegfc
+        https://github.com/vicrodh/qbz
+
+    Ansible (GPL-3.0-or-later) is used as a tool to run the provisioning and
+    is not redistributed here. Packages installed via apt (alsa-utils,
+    avahi-daemon, iw, curl, ca-certificates) remain under their own licences.
+
+Notice
+    Qobuz Connect has no public SDK. qbzd implements the protocol through
+    reverse engineering and is not authorised, certified or supported by
+    Qobuz. A valid Qobuz subscription is required.
+
+    Qobuz is a trademark of Qobuz. Raspberry Pi is a trademark of Raspberry
+    Pi Ltd. Musical Fidelity is a trademark of Musical Fidelity Ltd. This
+    project is not affiliated with, endorsed by or certified by any of them.
+
+    See the README for the full licence, credits and legal notice.

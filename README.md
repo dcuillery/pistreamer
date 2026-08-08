@@ -179,9 +179,46 @@ Open Qobuz on your phone or desktop, hit the Connect icon, choose `streamer`. Do
 ```bash
 make status    # daemon state and now-playing
 make logs      # live journal
+make boots     # previous boots + throttle state — spot unclean restarts
+make hwparams  # what rate/format the DAC is actually receiving
 make provision # re-apply config after editing group_vars/all.yml
 make upgrade   # bump qbzd (set qbzd_version first) and restart
 ```
+
+## Changing the DAC
+
+Plug the new one in and re-provision. That's the whole procedure:
+
+```bash
+make provision
+```
+
+`qbzd_audio_device` defaults to `auto`, and the role discovers the USB audio card from
+`/proc/asound/cards` and derives the matching `hw:CARD=<name>,DEV=0`. This is unambiguous
+because the `audio` role disables onboard analog and HDMI audio, so a USB DAC is the only
+sound card the system has.
+
+If no USB audio card is found, provisioning **fails with an explicit message** rather than
+silently falling back to a device that would quietly resample. Check `make dacs` — and note
+that under-voltage can drop a DAC off the USB bus entirely, which looks identical to it not
+being plugged in.
+
+To pin a device instead of auto-detecting, set it explicitly in `group_vars/all.yml`:
+
+```yaml
+qbzd_audio_device: "hw:CARD=M2496,DEV=0"
+```
+
+Prefer the `hw:CARD=<name>` form over `hw:0,0` — it survives card renumbering. Never use
+`system`, ALSA's default device: it routes through the software mixer and silently disables
+bit-perfect output.
+
+Two things worth checking after a swap, since they are DAC-specific:
+
+- **`make hwparams`** while playing — confirm `rate` tracks the source material.
+- **The new DAC's ceiling.** `audio.limit_quality_to_device` is on, so `qbzd` adapts to what
+  the hardware reports. The V90-DAC tops out at 24-bit/96 kHz; a UAC2 DAC may reach 24/192,
+  in which case you get the full Qobuz hi-res stream with no downsampling.
 
 ---
 
@@ -281,6 +318,91 @@ pistreamer/
     └── troubleshooting.md    # dropouts, DAC not appearing, login problems
 ```
 
-## Licence
+---
 
-MIT. Bundles nothing; `qbzd` is fetched at provision time from its own MIT-licensed release.
+# Licence, credits and legal notice
+
+## This project
+
+Licensed under the **MIT Licence** — see [LICENSE](LICENSE). © 2026 Damien Cuillery.
+
+## What this repository contains, and what it does not
+
+**This repository bundles no third-party code whatsoever.** It is provisioning only:
+Ansible roles, a Makefile and documentation, all original to this project.
+
+Every third-party component is fetched **at provision time**, on your own device, from its
+own official source:
+
+- `qbzd` is downloaded from the upstream GitHub release and verified against a recorded
+  SHA-256 (`group_vars/all.yml`).
+- Everything else comes from the Debian / Raspberry Pi OS package repositories via `apt`.
+
+That distinction matters for redistribution: cloning or forking this repository copies only
+MIT-licensed original work. No binaries, no vendored sources, no credentials.
+
+## Third-party components
+
+| Component | Role | Licence | Source |
+|---|---|---|---|
+| **QBZ / `qbzd`** | The Qobuz Connect endpoint — the core of this build | **MIT** — © 2024 blitzkriegfc | [github.com/vicrodh/qbz](https://github.com/vicrodh/qbz) |
+| **Ansible** | Runs the provisioning from your machine | GPL-3.0-or-later (`ansible-core`) | [ansible.com](https://www.ansible.com/) |
+| **Raspberry Pi OS / Debian** | Host operating system | Individual per-package licences | [raspberrypi.com](https://www.raspberrypi.com/software/) |
+| `alsa-utils`, `avahi-daemon`, `iw`, `curl`, `ca-certificates` | Installed via `apt` at provision time | Individual per-package licences | Debian repositories |
+
+Ansible is a **tool this project is run with**, not a component it distributes, so its GPL
+terms do not extend to this repository's code. Likewise, Debian packages are installed on
+your device by `apt` under their own licences; none are redistributed here.
+
+### Credit where it is due
+
+This project is a thin orchestration layer. **The hard part — implementing a working Qobuz
+Connect endpoint — is the work of the QBZ authors and contributors**, not of this repository.
+If this build is useful to you, the credit belongs upstream:
+[github.com/vicrodh/qbz](https://github.com/vicrodh/qbz), whose README lists its contributors.
+
+## Important: Qobuz Connect is unofficial
+
+Read this before publishing, forking or relying on this project.
+
+**Qobuz Connect has no public SDK.** Qobuz licenses it to certified hardware partners.
+`qbzd` implements the protocol through **reverse engineering**; it is not authorised,
+certified or supported by Qobuz. Consequences you should accept up front:
+
+- **It can stop working at any time**, without notice, if Qobuz changes the protocol.
+- **A valid Qobuz subscription is required.** This project provides no content, no access
+  and no circumvention of any kind — it plays your own subscription through your own DAC.
+- **You are responsible for your own compliance** with the
+  [Qobuz Terms of Service](https://www.qobuz.com/us-en/legal/terms).
+
+Quoting the upstream project's own disclaimer:
+
+> "This application uses the Qobuz API but is not certified by Qobuz. Qobuz is a trademark of
+> Qobuz. QBZ is not affiliated with, endorsed by, or certified by Qobuz."
+
+The same applies here, and to this project additionally.
+
+## Trademarks
+
+**Qobuz** is a trademark of Qobuz. **Raspberry Pi** is a trademark of Raspberry Pi Ltd.
+**Musical Fidelity** is a trademark of Musical Fidelity Ltd. **Debian** is a registered
+trademark of Software in the Public Interest, Inc.
+
+This project is **not affiliated with, endorsed by, sponsored by or certified by** any of
+them. Their names are used solely to describe interoperability — to state factually which
+service, hardware and operating system this configuration targets.
+
+## Privacy
+
+This repository stores **no credentials**. Qobuz authentication is browser-based OAuth
+handled entirely by `qbzd`, and the resulting token is stored on your own device under
+`~/.local/share/qbzd/`. `inventory.ini` — which holds your host address and username — is
+gitignored. Nothing is transmitted anywhere by this project.
+
+## No warranty, and not legal advice
+
+This project is provided "as is", without warranty of any kind, as set out in [LICENSE](LICENSE).
+The summary above is offered in good faith and reflects licences verified at the time of
+writing; it is **not legal advice**. If you intend to redistribute this work — particularly
+commercially — verify the current terms of each component yourself, as upstream licences can
+change.

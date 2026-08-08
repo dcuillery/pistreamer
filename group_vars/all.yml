@@ -28,12 +28,22 @@ qbzd_bin: /usr/bin/qbzd
 # read off a configured device with `qbzd settings show` rather than guessed —
 # see docs/troubleshooting.md. Login stays interactive (OAuth); everything
 # below is reproducible.
+# Which DAC to output to.
+#
+#   auto  — discover the USB audio card and use it (recommended). Since the
+#           audio role disables onboard and HDMI audio, the USB DAC is the only
+#           card in the system, so this is unambiguous. Swap DACs by plugging
+#           the new one in and re-running `make provision` — nothing to edit.
+#
+#   or pin it explicitly, card-NAME based rather than "hw:0,0" so it survives
+#   renumbering:  "hw:CARD=M2496,DEV=0"
+#
+# Never set this to "system" — that is ALSA's default device, which routes
+# through the software mixer and silently disables bit-perfect output.
+qbzd_audio_device: auto
+
 qbzd_settings:
   audio.backend: alsa                 # not PipeWire/Pulse — no resampling layer
-  # Card-NAME based, not "hw:0,0": survives renumbering if another USB audio
-  # device is ever attached. "system" (the default) routes through ALSA's
-  # default device and silently disables bit-perfect output.
-  audio.device: "hw:CARD=M2496,DEV=0"
   audio.alsa_plugin: hw               # hw, never plughw — plughw resamples
   audio.exclusive_mode: "true"        # nothing else may open the card
   audio.reserve_dac_while_running: "true"

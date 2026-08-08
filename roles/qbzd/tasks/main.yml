@@ -185,6 +185,43 @@
 # rather than by templating ~/.config/qbz/qbzd.toml — whose schema upstream
 # does not publish. Read-modify-compare so runs are idempotent.
 
+# --- Which DAC? -------------------------------------------------------------
+# /proc/asound/cards looks like:
+#    0 [M2496          ]: USB-Audio - Musical Fidelity V90-DAC 24/96
+# so the bracketed field is the ALSA card name that "hw:CARD=" wants.
+
+- name: Read the sound cards
+  ansible.builtin.command: cat /proc/asound/cards
+  register: qbzd_cards
+  changed_when: false
+  check_mode: false
+
+- name: Discover the USB DAC's ALSA card name
+  ansible.builtin.set_fact:
+    qbzd_detected_card: >-
+      {{ (qbzd_cards.stdout_lines | select('search', 'USB-Audio')
+          | map('regex_replace', '^\s*\d+\s*\[\s*(\S+)\s*\].*$', '\1')
+          | list | first | default('')) | trim }}
+  when: qbzd_audio_device == 'auto'
+
+- name: Fail clearly when no USB DAC is present
+  ansible.builtin.assert:
+    that: qbzd_detected_card | default('') | length > 0
+    fail_msg: >-
+      qbzd_audio_device is 'auto' but no USB-Audio card was found in
+      /proc/asound/cards. Is the DAC plugged in and powered? Check with
+      `make dacs`. Under-voltage can also drop a DAC off the USB bus entirely.
+    success_msg: "Detected USB DAC: card '{{ qbzd_detected_card | default('') }}'"
+  when: qbzd_audio_device == 'auto'
+
+- name: Resolve the output device and fold it into the settings
+  ansible.builtin.set_fact:
+    qbzd_settings_effective: >-
+      {{ qbzd_settings | combine({
+           'audio.device': ('hw:CARD=' ~ qbzd_detected_card ~ ',DEV=0')
+                           if qbzd_audio_device == 'auto' else qbzd_audio_device
+         }) }}
+
 - name: Read the current qbzd settings
   ansible.builtin.command: "{{ qbzd_bin }} settings show"
   become: false
@@ -210,7 +247,7 @@
       - "{{ item.key }}"
       - "{{ item.value }}"
   become: false
-  loop: "{{ qbzd_settings | dict2items }}"
+  loop: "{{ qbzd_settings_effective | dict2items }}"
   loop_control:
     label: "{{ item.key }} = {{ item.value }}"
   when:
