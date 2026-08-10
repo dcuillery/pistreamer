@@ -36,6 +36,9 @@
       tags: [audio]
     - role: qbzd
       tags: [qbzd]
+    - role: webui
+      tags: [webui]
+      when: webui_enabled | bool
 
   post_tasks:
     - name: Report whether a reboot is outstanding

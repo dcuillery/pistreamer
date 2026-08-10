@@ -1,0 +1,7 @@
+---
+- name: Restart pistreamer-web
+  ansible.builtin.systemd:
+    name: pistreamer-web
+    state: restarted
+    daemon_reload: true
+  failed_when: false

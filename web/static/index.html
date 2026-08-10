@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>Pi Streamer</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🎵</text></svg>">
+</head>
+<body>
+
+<!-- Login ------------------------------------------------------------- -->
+<div id="gate" class="gate" hidden>
+  <form id="login-form" class="card gate-card">
+    <h1 class="gate-title">Pi&nbsp;Streamer</h1>
+    <p class="muted">Accès protégé</p>
+    <input id="password" type="password" placeholder="Mot de passe" autocomplete="current-password" required>
+    <button type="submit" class="btn btn-primary">Se connecter</button>
+    <p id="login-error" class="error" hidden></p>
+  </form>
+</div>
+
+<!-- App --------------------------------------------------------------- -->
+<main id="app" hidden>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="conn-dot" aria-hidden="true"></span>
+      <strong id="device-name">Pi Streamer</strong>
+    </div>
+    <div class="topbar-right">
+      <span id="subscription" class="pill"></span>
+      <button id="logout" class="btn btn-ghost" title="Se déconnecter">Quitter</button>
+    </div>
+  </header>
+
+  <div id="banners"></div>
+
+  <!-- Now playing --------------------------------------------------- -->
+  <section class="card player">
+    <img id="art" class="art" alt="" hidden>
+    <div id="art-empty" class="art art-empty" aria-hidden="true">♪</div>
+
+    <div class="player-body">
+      <div class="track">
+        <h2 id="title">—</h2>
+        <p id="artist" class="muted"></p>
+      </div>
+
+      <div class="progress">
+        <span id="pos" class="time">0:00</span>
+        <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+        <span id="dur" class="time">0:00</span>
+      </div>
+
+      <div class="controls">
+        <button id="prev" class="btn btn-icon" title="Précédent">⏮</button>
+        <button id="toggle" class="btn btn-icon btn-play" title="Lecture / pause">▶</button>
+        <button id="next" class="btn btn-icon" title="Suivant">⏭</button>
+        <div class="vol">
+          <span id="vol-icon" aria-hidden="true">🔊</span>
+          <input id="volume" type="range" min="0" max="100" value="0" aria-label="Volume">
+          <span id="vol-val" class="time">0%</span>
+        </div>
+      </div>
+
+      <p id="vol-warning" class="hint warn" hidden></p>
+    </div>
+  </section>
+
+  <!-- Audio quality ------------------------------------------------- -->
+  <section class="card">
+    <h3>Sortie audio</h3>
+    <dl class="facts">
+      <div><dt>Format en cours</dt><dd id="fmt">—</dd></div>
+      <div><dt>Bit-perfect</dt><dd id="bitperfect">—</dd></div>
+      <div><dt>DAC</dt><dd id="dac-state">—</dd></div>
+    </dl>
+
+    <label class="field">
+      <span>Convertisseur (DAC)</span>
+      <select id="device"></select>
+      <small id="device-caps" class="hint"></small>
+    </label>
+
+    <label class="field">
+      <span>Qualité de lecture</span>
+      <select id="quality"></select>
+    </label>
+
+    <label class="field">
+      <span>Contrôle du volume</span>
+      <select id="volume-mode"></select>
+      <small class="hint">« locked » désactive le volume logiciel : le flux n'est
+        jamais retouché, votre ampli gère le niveau.</small>
+    </label>
+  </section>
+
+  <!-- Qobuz ---------------------------------------------------------- -->
+  <section class="card">
+    <h3>Compte Qobuz</h3>
+    <dl class="facts">
+      <div><dt>État</dt><dd id="auth-state">—</dd></div>
+      <div><dt>Identifiant</dt><dd id="user-id">—</dd></div>
+    </dl>
+    <div class="row">
+      <button id="qobuz-login" class="btn">Se connecter à Qobuz</button>
+      <button id="qobuz-logout" class="btn btn-ghost">Déconnecter</button>
+    </div>
+    <div id="login-url-box" class="url-box" hidden>
+      <p class="hint">Ouvrez ce lien dans votre navigateur pour autoriser l'appareil :</p>
+      <a id="login-url" href="#" target="_blank" rel="noopener"></a>
+    </div>
+  </section>
+
+  <!-- Qobuz Connect -------------------------------------------------- -->
+  <section class="card">
+    <h3>Qobuz Connect</h3>
+    <dl class="facts">
+      <div><dt>État</dt><dd id="qc-state">—</dd></div>
+      <div><dt>Session</dt><dd id="qc-session">—</dd></div>
+    </dl>
+    <label class="field">
+      <span>Nom affiché dans l'application Qobuz</span>
+      <input id="qc-name" type="text" maxlength="40">
+    </label>
+  </section>
+
+  <!-- Health --------------------------------------------------------- -->
+  <section class="card">
+    <h3>État du système</h3>
+    <dl class="facts">
+      <div><dt>Alimentation</dt><dd id="power">—</dd></div>
+      <div><dt>Température</dt><dd id="temp">—</dd></div>
+      <div><dt>Démon</dt><dd id="uptime">—</dd></div>
+    </dl>
+  </section>
+
+  <footer class="foot muted">
+    <span id="version"></span> · <a href="https://github.com/dcuillery/pistreamer" target="_blank" rel="noopener">pistreamer</a>
+  </footer>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

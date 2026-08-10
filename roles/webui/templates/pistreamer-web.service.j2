@@ -1,0 +1,27 @@
+# Managed by pistreamer.
+[Unit]
+Description=pistreamer web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ ansible_user }}
+Group={{ ansible_user }}
+WorkingDirectory={{ webui_dir }}
+Environment=PISTREAMER_WEB_CONFIG=/etc/pistreamer/web.json
+Environment=QBZD_HOST=127.0.0.1:8182
+ExecStart={{ webui_dir }}/venv/bin/uvicorn app:app --host {{ webui_bind }} --port {{ webui_port }}
+Restart=on-failure
+RestartSec=5
+
+# Modest hardening. The app runs a subprocess (the qbzd CLI), so it cannot be
+# fully locked down, but it has no business writing outside its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths={{ webui_dir }} /home/{{ ansible_user }}/.config /home/{{ ansible_user }}/.local
+
+[Install]
+WantedBy=multi-user.target

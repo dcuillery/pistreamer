@@ -185,6 +185,62 @@ make provision # re-apply config after editing group_vars/all.yml
 make upgrade   # bump qbzd (set qbzd_version first) and restart
 ```
 
+## Web UI
+
+A small FastAPI app on the Pi gives you a friendly front end: now-playing with
+artwork and transport controls, DAC selection, playback quality, Qobuz login, and a
+health panel that surfaces under-voltage.
+
+```bash
+make webui-password    # set a password (prompts; never stored in git)
+make web               # deploy or update just the UI
+make open              # open it in your browser
+make web-logs          # follow its log
+```
+
+It lands on `http://streamer.local:8080/`.
+
+### Why it must run on the Pi
+
+Two constraints, both found by probing the daemon rather than assuming:
+
+**1. `qbzd` refuses browser requests.** Its API has an always-on *Origin shield*
+that returns 403 to any request carrying an `Origin` header — verified directly:
+
+```
+sans Origin : 200
+avec Origin : 403
+```
+
+Browsers always send `Origin` cross-origin, so a static page cannot call `qbzd`.
+This app relays server-side, where no `Origin` header is sent.
+
+**2. There are no settings endpoints.** `/api/settings`, `/api/config`,
+`/api/devices` all return 404. Only `status`, `now-playing`, `events`, `ping`,
+`playback/*` and `queue/*` exist. Every configuration action therefore shells out
+to the `qbzd` CLI — which has to run locally.
+
+```
+browser ──password──> web UI (Pi) ──HTTP──> qbzd 127.0.0.1:8182
+                                  └──exec──> qbzd CLI (settings, login)
+```
+
+### What it fixed about security
+
+By default `qbzd` binds `0.0.0.0:8182` **with no authentication** — anyone on your
+network could control playback. Provisioning now binds it to `127.0.0.1`.
+
+Token auth was the obvious alternative and does not work here: the CLI has **no
+`--token` flag and honours no token environment variable** (its only options are
+`--host`, `-q`, `-h`, `-V`). Enabling `[server] token` would have broken
+`qbzd settings set`, `qbzd login` and this project's own provisioning. Binding to
+localhost reaches the same goal at no cost — the CLI and the UI both run on the Pi,
+so neither notices, and the web UI becomes the single password-protected front door.
+
+Your password is hashed **on the Pi** (PBKDF2-SHA256, 200k iterations) and only the
+hash is written to `/etc/pistreamer/web.json`. The plaintext never touches this
+repository, which is public.
+
 ## Changing the DAC
 
 Plug the new one in and re-provision. That's the whole procedure:

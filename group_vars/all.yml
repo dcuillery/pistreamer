@@ -53,6 +53,28 @@ qbzd_settings:
   qconnect.startup_mode: "on"
   qconnect.volume_mode: "software" # ("locked" or "software")
 
+# By default qbzd listens on 0.0.0.0:8182 with no authentication — anyone on
+# the LAN can control playback. Its token auth is unusable here: the CLI has no
+# --token flag and reads no token env var, so enabling one would break
+# `qbzd settings set`, `qbzd login` and this project's provisioning. Binding to
+# localhost closes the hole without that cost; the web UI becomes the only
+# front door, and it has its own password.
+qbzd_bind_localhost: true
+
+# --- Web UI -----------------------------------------------------------------
+# A small FastAPI app that relays to qbzd. It has to run on the Pi itself:
+# qbzd's API rejects requests carrying an Origin header (so a browser cannot
+# call it directly), and it exposes no settings endpoints at all — those only
+# exist in the CLI.
+webui_enabled: true
+webui_dir: /opt/pistreamer-web
+webui_bind: "0.0.0.0"
+webui_port: 8080
+
+# The password is NEVER stored here — this repository is public. Set it with
+# `make webui-password`, which prompts and passes it through to Ansible; the
+# hash is computed on the Pi and only the hash is written to disk.
+
 # --- Audio ------------------------------------------------------------------
 # Silence every audio device that isn't your DAC. With these off, the USB DAC
 # is the only card in the system and enumerates predictably as card 0.

@@ -1,0 +1,9 @@
+# Deliberately minimal — this runs on a 1 GB Pi 3B.
+#
+# Plain `uvicorn`, not `uvicorn[standard]`: the extras pull uvloop and
+# httptools, which have no aarch64 wheels for every Python and would trigger a
+# long compile on this board. The pure-Python event loop is more than adequate
+# for a handful of local clients.
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+httpx>=0.27,<1.0

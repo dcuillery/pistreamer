@@ -1,0 +1,141 @@
+---
+# Deploy the web UI: a small FastAPI app that relays to qbzd.
+#
+# It must run ON the Pi, for two reasons discovered by probing the daemon:
+#   1. qbzd's API rejects any request carrying an Origin header (verified:
+#      200 without, 403 with), so a browser cannot call it directly.
+#   2. qbzd exposes no settings endpoints at all — configuration only exists
+#      through the CLI, which has to run locally.
+
+- name: Install the Python runtime pieces
+  ansible.builtin.apt:
+    name:
+      - python3-venv
+      - python3-pip
+    state: present
+
+- name: Create the application directory
+  ansible.builtin.file:
+    path: "{{ webui_dir }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+- name: Copy the application
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/web/"
+    dest: "{{ webui_dir }}/"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+    directory_mode: "0755"
+  notify: Restart pistreamer-web
+
+# A venv is not optional on Debian 13: PEP 668 marks the system Python as
+# externally managed and pip refuses to install into it.
+- name: Create the virtualenv
+  ansible.builtin.command: "python3 -m venv {{ webui_dir }}/venv"
+  args:
+    creates: "{{ webui_dir }}/venv/bin/python"
+  become: false
+
+- name: Install Python dependencies
+  ansible.builtin.pip:
+    requirements: "{{ webui_dir }}/requirements.txt"
+    virtualenv: "{{ webui_dir }}/venv"
+  become: false
+  notify: Restart pistreamer-web
+
+# --- Configuration & password ----------------------------------------------
+# The password is hashed ON the Pi so the plaintext never lands in a file, and
+# never in this repository — which is public.
+
+- name: Create the config directory
+  ansible.builtin.file:
+    path: /etc/pistreamer
+    state: directory
+    owner: root
+    group: "{{ ansible_user }}"
+    mode: "0750"
+
+- name: Check for an existing config
+  ansible.builtin.stat:
+    path: /etc/pistreamer/web.json
+  register: webui_cfg
+
+# Rewritten only when a password is supplied, so the session secret survives
+# ordinary runs and you are not logged out on every provision.
+- name: Write the web config
+  when: webui_password is defined and webui_password | length > 0
+  no_log: true
+  ansible.builtin.command:
+    argv:
+      - "{{ webui_dir }}/venv/bin/python"
+      - "-c"
+      - |
+        import hashlib, json, os, secrets, sys
+        path = "/etc/pistreamer/web.json"
+        try:
+            cfg = json.load(open(path))
+        except Exception:
+            cfg = {}
+        salt = secrets.token_hex(16)
+        cfg["salt"] = salt
+        cfg["password_hash"] = hashlib.pbkdf2_hmac(
+            "sha256", sys.argv[1].encode(), bytes.fromhex(salt), 200_000).hex()
+        cfg.setdefault("secret", secrets.token_hex(32))
+        with open(path, "w") as fh:
+            json.dump(cfg, fh)
+        os.chmod(path, 0o640)
+      - "{{ webui_password }}"
+  notify: Restart pistreamer-web
+
+- name: Create a passwordless config if none exists
+  when: not webui_cfg.stat.exists and (webui_password is not defined or webui_password | length == 0)
+  ansible.builtin.command:
+    argv:
+      - "{{ webui_dir }}/venv/bin/python"
+      - "-c"
+      - |
+        import json, os, secrets
+        with open("/etc/pistreamer/web.json", "w") as fh:
+            json.dump({"password_hash": None, "salt": None,
+                       "secret": secrets.token_hex(32)}, fh)
+        os.chmod("/etc/pistreamer/web.json", 0o640)
+  notify: Restart pistreamer-web
+
+- name: Warn when no password is set
+  ansible.builtin.debug:
+    msg: >-
+      No web password is configured, so anyone on your LAN can change the
+      streamer's settings. Set one with:  make webui-password
+  when: webui_password is not defined or webui_password | length == 0
+
+- name: Own the config as the service user
+  ansible.builtin.file:
+    path: /etc/pistreamer/web.json
+    owner: root
+    group: "{{ ansible_user }}"
+    mode: "0640"
+  failed_when: false
+
+# --- Service ----------------------------------------------------------------
+
+- name: Install the systemd unit
+  ansible.builtin.template:
+    src: pistreamer-web.service.j2
+    dest: /etc/systemd/system/pistreamer-web.service
+    mode: "0644"
+  notify: Restart pistreamer-web
+
+- name: Enable and start the web UI
+  ansible.builtin.systemd:
+    name: pistreamer-web
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Report the URL
+  ansible.builtin.debug:
+    msg: "Web UI: http://{{ streamer_hostname }}.local:{{ webui_port }}/"

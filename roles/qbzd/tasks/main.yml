@@ -185,43 +185,6 @@
 # rather than by templating ~/.config/qbz/qbzd.toml — whose schema upstream
 # does not publish. Read-modify-compare so runs are idempotent.
 
-# --- Which DAC? -------------------------------------------------------------
-# /proc/asound/cards looks like:
-#    0 [M2496          ]: USB-Audio - Musical Fidelity V90-DAC 24/96
-# so the bracketed field is the ALSA card name that "hw:CARD=" wants.
-
-- name: Read the sound cards
-  ansible.builtin.command: cat /proc/asound/cards
-  register: qbzd_cards
-  changed_when: false
-  check_mode: false
-
-- name: Discover the USB DAC's ALSA card name
-  ansible.builtin.set_fact:
-    qbzd_detected_card: >-
-      {{ (qbzd_cards.stdout_lines | select('search', 'USB-Audio')
-          | map('regex_replace', '^\s*\d+\s*\[\s*(\S+)\s*\].*$', '\1')
-          | list | first | default('')) | trim }}
-  when: qbzd_audio_device == 'auto'
-
-- name: Fail clearly when no USB DAC is present
-  ansible.builtin.assert:
-    that: qbzd_detected_card | default('') | length > 0
-    fail_msg: >-
-      qbzd_audio_device is 'auto' but no USB-Audio card was found in
-      /proc/asound/cards. Is the DAC plugged in and powered? Check with
-      `make dacs`. Under-voltage can also drop a DAC off the USB bus entirely.
-    success_msg: "Detected USB DAC: card '{{ qbzd_detected_card | default('') }}'"
-  when: qbzd_audio_device == 'auto'
-
-- name: Resolve the output device and fold it into the settings
-  ansible.builtin.set_fact:
-    qbzd_settings_effective: >-
-      {{ qbzd_settings | combine({
-           'audio.device': ('hw:CARD=' ~ qbzd_detected_card ~ ',DEV=0')
-                           if qbzd_audio_device == 'auto' else qbzd_audio_device
-         }) }}
-
 - name: Read the current qbzd settings
   ansible.builtin.command: "{{ qbzd_bin }} settings show"
   become: false
@@ -237,6 +200,65 @@
               | select('search', '=')
               | map('regex_replace', '^\s*(\S+)\s*=\s*(.*?)\s*$', '\1|\2')
               | map('split', '|')) }}
+
+# --- Which DAC? -------------------------------------------------------------
+# /proc/asound/cards looks like:
+#    0 [M2496          ]: USB-Audio - Musical Fidelity V90-DAC 24/96
+# so the bracketed field is the ALSA card name that "hw:CARD=" wants.
+#
+# A DAC that is switched off de-enumerates from USB and vanishes from this
+# file. That is normal, not a fault — so detection failing must NOT abort the
+# run. When nothing is detected we keep whatever device is already configured,
+# and only fail when there is no usable value to fall back to.
+
+- name: Read the sound cards
+  ansible.builtin.command: cat /proc/asound/cards
+  register: qbzd_cards
+  changed_when: false
+  check_mode: false
+
+- name: Discover the USB DAC's ALSA card name
+  ansible.builtin.set_fact:
+    qbzd_detected_card: >-
+      {{ (qbzd_cards.stdout_lines | select('search', 'USB-Audio')
+          | map('regex_replace', '^\s*\d+\s*\[\s*(\S+)\s*\].*$', '\1')
+          | list | first | default('')) | trim }}
+  when: qbzd_audio_device == 'auto'
+
+- name: Resolve the output device
+  ansible.builtin.set_fact:
+    qbzd_device_resolved: >-
+      {{ qbzd_audio_device if qbzd_audio_device != 'auto'
+         else ('hw:CARD=' ~ qbzd_detected_card ~ ',DEV=0')
+              if (qbzd_detected_card | default('') | length > 0)
+         else (qbzd_current['audio.device'] | default('')) }}
+
+- name: Report that the configured DAC is being kept
+  ansible.builtin.debug:
+    msg: >-
+      No USB audio card is present — the DAC is probably switched off or
+      unplugged. Keeping the configured device '{{ qbzd_device_resolved }}'.
+  when:
+    - qbzd_audio_device == 'auto'
+    - qbzd_detected_card | default('') | length == 0
+    - qbzd_device_resolved | length > 0
+
+- name: Fail only when there is no device to fall back to
+  ansible.builtin.assert:
+    that:
+      - qbzd_device_resolved | length > 0
+      - qbzd_device_resolved != 'system'
+    fail_msg: >-
+      No USB audio card was found in /proc/asound/cards and no usable device is
+      configured yet, so there is nothing to fall back to. Switch the DAC on and
+      re-run, or pin qbzd_audio_device explicitly in group_vars/all.yml.
+      ('system' is rejected on purpose: it routes through ALSA's default device
+      and silently disables bit-perfect output.) Check with `make dacs`.
+    success_msg: "Output device: {{ qbzd_device_resolved }}"
+
+- name: Fold the device into the settings
+  ansible.builtin.set_fact:
+    qbzd_settings_effective: "{{ qbzd_settings | combine({'audio.device': qbzd_device_resolved}) }}"
 
 - name: Apply qbzd settings
   ansible.builtin.command:
@@ -261,6 +283,90 @@
       Could not read qbzd settings — the daemon may not be running yet.
       Settings will be applied on the next `make provision`.
   when: qbzd_settings_now.rc | default(1) != 0
+
+# --- Close the daemon to the LAN --------------------------------------------
+# qbzd binds 0.0.0.0:8182 by default, so anyone on the network can control
+# playback. Its token auth is not usable here: the CLI has no --token flag and
+# honours no token environment variable (verified — its only options are
+# --host, -q, -h, -V), so enabling one would break `qbzd settings set`,
+# `qbzd login` and this project's own provisioning.
+#
+# Binding to localhost achieves the same goal without that cost. The CLI and
+# the web UI both run on the Pi, so neither notices; the LAN loses its
+# unauthenticated back door, and the web UI becomes the single front door.
+
+# The config directory is ~/.config/qbzd/ — NOT ~/.config/qbz/, which the
+# upstream wiki states. Writing to the documented path silently does nothing:
+# the daemon never reads it. `qbzd config path` is the authority, so ask it
+# rather than hardcoding either spelling.
+- name: Ask qbzd where its config lives
+  ansible.builtin.command: "{{ qbzd_bin }} config path"
+  become: false
+  register: qbzd_paths
+  changed_when: false
+  check_mode: false
+  when: qbzd_bind_localhost | bool
+
+- name: Resolve the config file path
+  ansible.builtin.set_fact:
+    qbzd_toml: >-
+      {{ (qbzd_paths.stdout_lines | select('search', '^\s*config\s*:')
+          | map('regex_replace', '^\s*config\s*:\s*', '') | list | first
+          | default(ansible_env.HOME ~ '/.config/qbzd')) | trim }}/qbzd.toml
+  when: qbzd_bind_localhost | bool
+
+- name: Check whether the config file exists
+  ansible.builtin.stat:
+    path: "{{ qbzd_toml }}"
+  become: false
+  register: qbzd_toml_stat
+  when: qbzd_bind_localhost | bool
+
+# Two paths, because the shipped file already contains a [server] section.
+# Appending another would duplicate the table — invalid TOML — so an existing
+# file gets its bind line edited in place instead.
+- name: Create the config file with a server section
+  ansible.builtin.copy:
+    dest: "{{ qbzd_toml }}"
+    mode: "0644"
+    content: |
+      # Managed by pistreamer.
+      [server]
+      bind = "127.0.0.1"
+      port = 8182
+  become: false
+  when:
+    - qbzd_bind_localhost | bool
+    - not qbzd_toml_stat.stat.exists
+  notify: Restart qbzd
+
+- name: Bind the daemon to localhost only
+  ansible.builtin.lineinfile:
+    path: "{{ qbzd_toml }}"
+    regexp: '^\s*bind\s*='
+    line: 'bind = "127.0.0.1"'
+    insertafter: '^\s*\[server\]'
+  become: false
+  when:
+    - qbzd_bind_localhost | bool
+    - qbzd_toml_stat.stat.exists
+  notify: Restart qbzd
+
+# Cleans up a file an earlier version of this role wrote to the path the
+# upstream wiki documents (~/.config/qbz/), which the daemon never reads.
+#
+# NOT ansible_env.HOME: facts are gathered with become active, so that resolves
+# to /root and the deletion silently targets a path that never existed.
+- name: Remove the file written to the wrong path
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.config/qbz/qbzd.toml"
+    state: absent
+
+- name: Remove the stray config directory if now empty
+  ansible.builtin.command: "rmdir /home/{{ ansible_user }}/.config/qbz"
+  register: qbzd_rmdir
+  changed_when: qbzd_rmdir.rc == 0
+  failed_when: false
 
 - name: Report how to finish setup
   ansible.builtin.debug:

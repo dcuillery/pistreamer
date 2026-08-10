@@ -82,11 +82,30 @@ restart: guard-inventory  ## Restart the daemon
 upgrade: guard-inventory  ## Re-install qbzd after bumping qbzd_version in group_vars/all.yml
 	ansible-playbook site.yml --diff --tags qbzd
 
+## ---- web UI ----------------------------------------------------------------
+
+web: guard-inventory  ## Deploy/update the web UI only
+	ansible-playbook site.yml --diff --tags webui
+
+webui-password: guard-inventory  ## Set the web UI password (prompts; never stored in git)
+	@read -rsp "Nouveau mot de passe : " p; echo; \
+	 read -rsp "Confirmer : " q; echo; \
+	 if [ "$$p" != "$$q" ]; then echo "Les mots de passe diffèrent."; exit 1; fi; \
+	 if [ -z "$$p" ]; then echo "Mot de passe vide."; exit 1; fi; \
+	 ansible-playbook site.yml --tags webui -e "webui_password=$$p"
+
+web-logs: guard-inventory  ## Follow the web UI log
+	$(SSH) 'journalctl -u pistreamer-web -f'
+
+open:  ## Open the web UI in your browser
+	@open "http://$(PI_HOST):8080/" 2>/dev/null || echo "http://$(PI_HOST):8080/"
+
 hwparams: guard-inventory  ## Show the rate/format the DAC is actually receiving
 	@$(SSH) 'cat /proc/asound/card*/pcm*p/sub*/hw_params 2>/dev/null || echo "nothing playing"'
 
 shell: guard-inventory  ## SSH into the Pi
 	$(SSH)
 
-.PHONY: help guard-inventory ping check provision reboot dacs setup login \
-        settings-show status logs boots restart upgrade hwparams shell
+.PHONY: help guard-inventory ping check provision reboot dacs setup login web \
+        settings-show status logs boots restart upgrade hwparams shell \
+        webui-password web-logs open
