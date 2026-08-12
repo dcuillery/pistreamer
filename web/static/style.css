@@ -54,6 +54,10 @@
   /* Secondary editorial serif — the brand book says "used sparingly", so it is
      defined and deliberately left unused rather than sprinkled around. */
   --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+
+  /* Select chevron, drawn rather than inherited from the OS. A data URI cannot
+     use currentColor, so it is a token overridden per theme. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236e6a62' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
@@ -70,8 +74,32 @@
     --ok:        #7fa878;
     --warn:      #d0a84e;
     --err:       #d4796c;
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238d8a83' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
+
+/* ---- icons ----------------------------------------------------------------
+   Flat, geometric, monochrome, inheriting colour from their container. No
+   emoji: those render in a different typeface on every platform and carry
+   colour the brand never asked for. */
+
+.btn-icon svg { width: 17px; height: 17px; fill: currentColor; display: block; }
+.btn-play svg { width: 19px; height: 19px; }
+
+/* Both glyphs sit in the button; the class decides. */
+.btn-play .i-pause { display: none; }
+.btn-play.playing .i-play  { display: none; }
+.btn-play.playing .i-pause { display: block; }
+
+.vol-icon { display: inline-flex; align-items: center; color: var(--muted); }
+.vol-icon svg { width: 18px; height: 18px; display: block; }
+.vol-icon .w1, .vol-icon .w2, .vol-icon .wx { display: none; }
+.vol-icon.is-low  .w1 { display: inline; }
+.vol-icon.is-high .w1,
+.vol-icon.is-high .w2 { display: inline; }
+.vol-icon.is-mute .wx { display: inline; }
+
+.icon-disc { width: 44px; height: 44px; }
 
 /* Must precede every rule that sets `display`: the browser hides [hidden] via
    its own stylesheet, and ANY author `display` overrides that. Without this,
@@ -93,15 +121,21 @@ body {
 
 h1, h2, h3 { margin: 0; font-weight: 300; letter-spacing: -0.01em; line-height: 1.2; }
 
-/* Section labels echo the brand book's eyebrows: "Craft", "Signal". */
+/* Section headline.
+   Hierarchy against the field labels below is carried by FOUR axes at once —
+   size, case, weight and colour — not by size alone. That is what makes the
+   level readable at a glance without shouting.
+        headline   1.05rem · sentence case · light · full-contrast text
+        label      0.67rem · UPPERCASE · tracked · muted
+   The previous version had h3 at 0.68rem and labels at 0.74rem: the hierarchy
+   was literally inverted, which is precisely why it did not read. */
 h3 {
-  font-size: .68rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: .18em;
-  color: var(--muted);
-  margin-bottom: 1.1rem;
-  padding-bottom: .7rem;
+  font-size: 1.05rem;
+  font-weight: 300;
+  letter-spacing: -0.005em;
+  color: var(--text);
+  margin-bottom: 1.4rem;
+  padding-bottom: .8rem;
   border-bottom: 1px solid var(--rule);
 }
 
@@ -111,7 +145,9 @@ a { color: var(--accent-text); text-decoration-thickness: 1px; text-underline-of
 /* ---- login / first-run gate --------------------------------------------- */
 
 .gate { min-height: 100dvh; display: grid; place-items: center; }
-.gate-card { width: min(360px, 100%); text-align: center; }
+.gate-inner { width: min(360px, 100%); }
+.gate-card { width: 100%; text-align: center; }
+.gate-inner .lang { justify-content: center; margin-top: 1.1rem; }
 .gate-title {
   font-size: 1.6rem;
   font-weight: 300;
@@ -246,12 +282,32 @@ a { color: var(--accent-text); text-decoration-thickness: 1px; text-underline-of
 }
 
 input[type=text], input[type=password], select {
-  font: inherit; font-size: .9rem; width: 100%;
-  padding: .6rem .75rem; color: var(--text);
+  font-family: var(--font); font-size: .88rem; font-weight: 400;
+  letter-spacing: .01em; width: 100%;
+  padding: .62rem .8rem; color: var(--text);
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius);
   transition: border-color .15s;
 }
+
+/* Native selects render in the OS UI font with a platform chevron, which is
+   the one place the interface stopped looking like ZERON. Stripping the
+   appearance and drawing our own chevron puts them back in the same voice as
+   every other control.
+   Note the limit: the open dropdown LIST is drawn by the OS and cannot be
+   styled — only the closed control is ours. */
+select {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 2.2rem;
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right .8rem center;
+  background-size: 10px 6px;
+  cursor: pointer;
+}
+select::-ms-expand { display: none; }
+option { font-family: var(--font); background: var(--surface); color: var(--text); }
+
 input:hover, select:hover { border-color: var(--muted); }
 input:focus-visible, select:focus-visible, .btn:focus-visible, .switch input:focus-visible + .slider {
   outline: 1px solid var(--accent); outline-offset: 2px; border-color: var(--accent);
@@ -259,22 +315,24 @@ input:focus-visible, select:focus-visible, .btn:focus-visible, .switch input:foc
 
 /* ---- fields -------------------------------------------------------------- */
 
-.field { display: block; margin-bottom: 1.3rem; }
+.field { display: block; margin-bottom: 1.4rem; }
 .field:last-child { margin-bottom: 0; }
-.field > span {
-  display: block; font-size: .74rem; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--muted); margin-bottom: .45rem;
+
+/* Field label — the subordinate register. Deliberately smaller than the
+   section headline, and set as a tracked micro-caps "specification" label,
+   the way a spec sheet annotates a value. */
+.field > span, .field-text > span {
+  display: block; font-size: .67rem; font-weight: 500;
+  letter-spacing: .13em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: .5rem;
 }
+.field-text > span { margin-bottom: .25rem; }
 .hint { display: block; font-size: .78rem; line-height: 1.5; color: var(--muted); margin-top: .45rem; }
 .hint.warn { color: var(--warn); }
 .row { display: flex; gap: .6rem; flex-wrap: wrap; }
 
 .field-row { display: flex; align-items: flex-start; gap: 1.25rem; }
 .field-text { flex: 1; min-width: 0; }
-.field-text > span {
-  display: block; font-size: .74rem; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--muted);
-}
 
 /* ---- facts --------------------------------------------------------------- */
 
@@ -295,6 +353,27 @@ input:focus-visible, select:focus-visible, .btn:focus-visible, .switch input:foc
   padding: .28rem .6rem; border: 1px solid var(--border);
   border-radius: 2px; color: var(--muted);
 }
+
+/* ---- language switch -----------------------------------------------------
+   Two words and a separator rather than a dropdown: with only two locales a
+   select would hide the current choice behind a click, and add a control
+   heavier than the decision it carries. */
+
+.lang { display: flex; align-items: center; gap: .35rem; }
+.lang-btn {
+  font: inherit; font-size: .68rem; font-weight: 500;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); background: none; border: 0;
+  padding: .25rem .1rem; cursor: pointer;
+  border-bottom: 1px solid transparent;
+  transition: color .15s, border-color .15s;
+}
+.lang-btn:hover { color: var(--text); }
+.lang-btn.is-active { color: var(--text); border-bottom-color: var(--accent); }
+.lang-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+.lang-sep { color: var(--border); font-size: .68rem; }
+
+.grow { flex: 1; min-width: 0; }
 
 /* ---- toggle -------------------------------------------------------------- */
 

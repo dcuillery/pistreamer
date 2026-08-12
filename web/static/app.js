@@ -1,6 +1,9 @@
 /* pistreamer web UI.
    Polls /api/state for configuration and health, and layers qbzd's SSE event
-   stream on top for instant transport updates. */
+   stream on top for instant transport updates.
+
+   All user-facing text goes through t() from i18n.js. Nothing is hardcoded
+   here — see /static/i18n/*.json. */
 
 const $ = (id) => document.getElementById(id);
 const api = async (path, opts = {}) => {
@@ -23,23 +26,20 @@ const fmtTime = (s) => {
   return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 };
 
-const QUALITY_LABELS = {
-  mp3: "MP3 320 kbps",
-  cd: "CD — 16 bits / 44,1 kHz",
-  hires: "Hi-Res — 24 bits / 96 kHz",
-  hires_plus: "Hi-Res+ — jusqu'à 24/192",
-};
-const VOLUME_LABELS = {
-  software: "Logiciel (réglable depuis l'app)",
-  locked: "Verrouillé (bit-perfect garanti)",
-};
+// Decimal separators differ: 44.1 kHz in English, 44,1 kHz in French.
+const num1 = (v) => new Intl.NumberFormat(I18N.lang, {
+  minimumFractionDigits: 1, maximumFractionDigits: 1,
+}).format(v);
+
+const qualityLabel = (v) => t(`quality.${v}`) === `quality.${v}` ? v : t(`quality.${v}`);
+const volumeLabel  = (v) => t(`volume_mode.${v}`) === `volume_mode.${v}` ? v : t(`volume_mode.${v}`);
 
 function toast(msg) {
-  const t = $("toast");
-  t.textContent = msg;
-  t.hidden = false;
+  const el = $("toast");
+  el.textContent = msg;
+  el.hidden = false;
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { t.hidden = true; }, 2600);
+  toast._t = setTimeout(() => { el.hidden = true; }, 2600);
 }
 
 function setFact(el, text, cls) {
@@ -67,18 +67,18 @@ $("setup-form").addEventListener("submit", async (e) => {
   const p1 = $("new-password").value, p2 = $("new-password2").value;
   const err = $("setup-error");
   err.hidden = true;
-  if (p1 !== p2) { err.textContent = "Les mots de passe ne correspondent pas."; err.hidden = false; return; }
-  if (p1.length < 8) { err.textContent = "8 caractères minimum."; err.hidden = false; return; }
+  if (p1 !== p2) { err.textContent = t("gate.setup.mismatch"); err.hidden = false; return; }
+  if (p1.length < 8) { err.textContent = t("gate.setup.too_short"); err.hidden = false; return; }
   try {
     await api("/api/setup-password", { method: "POST", body: JSON.stringify({ password: p1 }) });
   } catch (ex) {
-    err.textContent = `Impossible d'enregistrer : ${ex.message}`;
+    err.textContent = t("gate.setup.save_failed", { error: ex.message });
     err.hidden = false;
     return;
   }
   $("new-password").value = $("new-password2").value = "";
   await start();
-  toast("Mot de passe défini");
+  toast(t("gate.setup.done"));
 });
 
 $("login-form").addEventListener("submit", async (e) => {
@@ -93,7 +93,7 @@ $("login-form").addEventListener("submit", async (e) => {
       body: JSON.stringify({ password: $("password").value }),
     });
   } catch {
-    $("login-error").textContent = "Mot de passe incorrect.";
+    $("login-error").textContent = t("gate.login.wrong");
     $("login-error").hidden = false;
     return;
   }
@@ -106,6 +106,25 @@ $("logout").addEventListener("click", async () => {
   location.reload();
 });
 
+/* ---------- language ---------- */
+
+// Delegated: the switcher exists twice (gate and topbar) and must work before
+// sign-in as well as after.
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-lang]");
+  if (btn) I18N.set(btn.getAttribute("data-lang"));
+});
+
+// Static markup is re-translated by I18N.apply(); everything drawn from JS has
+// to be redrawn here, otherwise half the page would switch and half would not.
+document.addEventListener("i18n:changed", () => {
+  if (state) {
+    renderBanners(state); renderPlayer(state); renderAudio(state);
+    renderAccount(state); renderHealth(state);
+  }
+  refreshWifi().catch(() => {});
+});
+
 /* ---------- rendering ---------- */
 
 function renderBanners(s) {
@@ -114,41 +133,47 @@ function renderBanners(s) {
   const add = (cls, title, body) => {
     const d = document.createElement("div");
     d.className = `banner ${cls}`;
-    d.innerHTML = `<strong>${title}</strong>${body}`;
+    // textContent, not innerHTML: `body` can carry a daemon error message,
+    // which must never be parsed as markup.
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const span = document.createElement("span");
+    span.textContent = body;
+    d.append(strong, span);
     box.appendChild(d);
   };
 
   if (!s.health?.healthy && s.health?.flags?.length) {
-    add("err", "Alimentation insuffisante",
-      `Le Pi signale : ${s.health.flags.join(", ")}. ` +
-      `Utilisez une alimentation 5,1 V / 2,5 A — c'est la première cause de coupures.`);
+    add("err", t("banner.power_title"),
+        t("banner.power_body", { flags: s.health.flags.join(", ") }));
   }
   if (!s.daemon) {
-    add("err", "Démon injoignable", "qbzd ne répond pas sur 127.0.0.1:8182.");
+    add("err", t("banner.daemon_title"), t("banner.daemon_body"));
   }
   if (!s.password_configured) {
-    add("warn", "Aucun mot de passe configuré",
-      "N'importe qui sur le réseau peut modifier ces réglages.");
+    add("warn", t("banner.nopw_title"), t("banner.nopw_body"));
   }
   const streamErr = s.daemon?.last_errors?.stream;
-  if (streamErr) add("warn", "Dernière erreur de flux", streamErr);
+  if (streamErr) add("warn", t("banner.stream_error_title"), streamErr);
 }
 
 function renderPlayer(s) {
   const p = s.daemon?.playback || {};
-  $("title").textContent = p.title || "Rien en lecture";
+  $("title").textContent = p.title || t("player.nothing");
   $("artist").textContent = p.artist || "";
   $("pos").textContent = fmtTime(p.position);
   $("dur").textContent = fmtTime(p.duration);
   $("bar-fill").style.width =
     p.duration ? `${Math.min(100, (p.position / p.duration) * 100)}%` : "0%";
-  $("toggle").textContent = p.state === "playing" ? "⏸" : "▶";
+  // Class switches, not textContent: the glyphs are SVG living in the markup.
+  $("toggle").classList.toggle("playing", p.state === "playing");
 
   if (!dragging && p.volume != null) {
     const v = Math.round(p.volume * 100);
     $("volume").value = v;
     $("vol-val").textContent = `${v}%`;
-    $("vol-icon").textContent = v === 0 ? "🔇" : v < 50 ? "🔉" : "🔊";
+    $("vol-icon").className =
+      `vol-icon ${v === 0 ? "is-mute" : v < 50 ? "is-low" : "is-high"}`;
   }
 
   // Volume mode drives both the control and the message beneath it.
@@ -162,19 +187,15 @@ function renderPlayer(s) {
   const w = $("vol-warning");
 
   $("volume").disabled = locked;
-  $("volume").title = locked
-    ? "Volume verrouillé — réglez le niveau sur votre amplificateur"
-    : "Volume logiciel";
+  $("volume").title = t(locked ? "player.volume_locked_title" : "player.volume_software_title");
 
   if (locked) {
     w.className = "hint";
-    w.textContent = "Volume verrouillé : le flux n'est jamais atténué numériquement. " +
-      "Réglez le niveau sur votre amplificateur.";
+    w.textContent = t("player.volume_locked_hint");
     w.hidden = false;
   } else if (mode === "software" && v < 100) {
     w.className = "hint warn";
-    w.textContent = `Volume logiciel à ${v} % : le signal est atténué numériquement, ` +
-      `donc plus bit-perfect. Mettez 100 % et réglez le niveau sur l'ampli.`;
+    w.textContent = t("player.volume_software_warn", { pct: v });
     w.hidden = false;
   } else { w.hidden = true; }
 
@@ -189,16 +210,18 @@ function renderPlayer(s) {
 function renderAudio(s) {
   const a = s.daemon?.audio || {};
   $("fmt").textContent = a.sample_rate
-    ? `${(a.sample_rate / 1000).toFixed(1)} kHz / ${a.bit_depth || "?"} bits` : "—";
+    ? `${num1(a.sample_rate / 1000)} kHz / ${a.bit_depth || "?"} bit`
+    : "—";
 
   const bp = a.bit_perfect;
   if (bp && bp !== "Disabled") setFact($("bitperfect"), bp, "ok");
   else if (a.configured_device === "system")
-    setFact($("bitperfect"), "désactivé (sortie « system »)", "err");
-  else setFact($("bitperfect"), bp || "inactif", "warn");
+    setFact($("bitperfect"), t("audio.bitperfect_off_system"), "err");
+  else setFact($("bitperfect"), bp || t("audio.bitperfect_inactive"), "warn");
 
-  if (a.device_present) setFact($("dac-state"), a.device_open ? "connecté, ouvert" : "connecté", "ok");
-  else setFact($("dac-state"), "absent ou éteint", "warn");
+  if (a.device_present)
+    setFact($("dac-state"), t(a.device_open ? "audio.dac_open" : "audio.dac_connected"), "ok");
+  else setFact($("dac-state"), t("audio.dac_absent"), "warn");
 
   // Device picker. A switched-off DAC vanishes from ALSA, so keep the
   // configured value visible rather than silently dropping the selection.
@@ -208,22 +231,22 @@ function renderAudio(s) {
   const seen = new Set();
   for (const d of s.devices) {
     seen.add(d.device);
-    const o = new Option(`${d.description} (carte ${d.card})`, d.device);
-    sel.add(o);
+    sel.add(new Option(
+      t("audio.device_option", { description: d.description, card: d.card }), d.device));
   }
   if (current && !seen.has(current)) {
-    sel.add(new Option(`${current} — éteint ou débranché`, current));
+    sel.add(new Option(t("audio.device_offline", { device: current }), current));
   }
   sel.value = current;
 
   const dev = s.devices.find((d) => d.device === sel.value);
   $("device-caps").textContent = dev?.rates?.length
-    ? `Prend en charge ${dev.rates.map((r) => (r / 1000).toFixed(1)).join(", ")} kHz` +
-      (dev.bits ? ` en ${dev.bits} bits` : "")
+    ? t("audio.caps", { rates: dev.rates.map((r) => num1(r / 1000)).join(", ") }) +
+      (dev.bits ? t("audio.caps_bits", { bits: dev.bits }) : "")
     : "";
 
-  fillSelect($("quality"), s.choices.quality, QUALITY_LABELS, s.settings?.["playback.quality"]);
-  fillSelect($("volume-mode"), s.choices.volume_mode, VOLUME_LABELS,
+  fillSelect($("quality"), s.choices.quality, qualityLabel, s.settings?.["playback.quality"]);
+  fillSelect($("volume-mode"), s.choices.volume_mode, volumeLabel,
              s.settings?.["qconnect.volume_mode"]);
 
   // qbzd stores booleans as the strings "true"/"false".
@@ -233,24 +256,26 @@ function renderAudio(s) {
   }
 }
 
-function fillSelect(sel, values, labels, current) {
+function fillSelect(sel, values, label, current) {
   sel.innerHTML = "";
-  for (const v of values) sel.add(new Option(labels[v] || v, v));
+  for (const v of values) sel.add(new Option(label(v), v));
   if (current) sel.value = current;
 }
 
 function renderAccount(s) {
   const auth = s.daemon?.auth || {};
   const logged = auth.state === "logged_in";
-  setFact($("auth-state"), logged ? "connecté" : "non connecté", logged ? "ok" : "warn");
+  setFact($("auth-state"), t(logged ? "qobuz.signed_in" : "qobuz.signed_out"),
+          logged ? "ok" : "warn");
   $("user-id").textContent = auth.user_id || "—";
   $("subscription").textContent = auth.subscription || "";
-  $("qobuz-login").textContent = logged ? "Se reconnecter" : "Se connecter à Qobuz";
+  $("qobuz-login").textContent = t(logged ? "qobuz.relogin" : "qobuz.login");
   $("qobuz-logout").disabled = !logged;
 
   const qc = s.daemon?.qconnect || {};
   setFact($("qc-state"), qc.state || "—", qc.state === "connected" ? "ok" : "warn");
-  $("qc-session").textContent = qc.session_active ? "active" : "inactive";
+  $("qc-session").textContent =
+    t(qc.session_active ? "qconnect.session_active" : "qconnect.session_inactive");
   if (document.activeElement !== $("qc-name")) {
     $("qc-name").value = s.settings?.["qconnect.device_name"] || "";
   }
@@ -260,12 +285,14 @@ function renderAccount(s) {
 
 function renderHealth(s) {
   const h = s.health || {};
-  if (h.healthy === true) setFact($("power"), "correcte", "ok");
+  if (h.healthy === true) setFact($("power"), t("system.power_ok"), "ok");
   else if (h.flags?.length) setFact($("power"), `${h.throttled_raw} — ${h.flags[0]}`, "err");
-  else setFact($("power"), "inconnue", "");
+  else setFact($("power"), t("system.power_unknown"), "");
   $("temp").textContent = h.temperature_c != null ? `${h.temperature_c} °C` : "—";
   const up = s.daemon?.uptime_secs;
-  $("uptime").textContent = up ? `${Math.floor(up / 3600)} h ${Math.floor((up % 3600) / 60)} min` : "—";
+  $("uptime").textContent = up
+    ? t("system.uptime", { hours: Math.floor(up / 3600), minutes: Math.floor((up % 3600) / 60) })
+    : "—";
   $("version").textContent = s.daemon?.version ? `qbzd ${s.daemon.version}` : "";
 }
 
@@ -288,15 +315,15 @@ async function save(key, value) {
       method: "POST", body: JSON.stringify({ [key]: value }),
     });
     if (r.failed && Object.keys(r.failed).length) {
-      toast(`Échec : ${Object.values(r.failed)[0]}`);
+      toast(t("toast.save_failed", { error: Object.values(r.failed)[0] }));
     } else {
-      toast("Enregistré");
+      toast(t("toast.saved"));
       state.settings = r.settings;
       // renderPlayer too: volume_mode decides whether the slider is usable,
       // and waiting for the next poll would leave it wrong for 5 seconds.
       renderAudio(state); renderAccount(state); renderPlayer(state);
     }
-  } catch (e) { toast(`Erreur : ${e.message}`); }
+  } catch (e) { toast(t("toast.error", { error: e.message })); }
 }
 
 /* ---------- events ---------- */
@@ -328,7 +355,7 @@ $("qc-name").addEventListener("input", (e) => {
 for (const [id, action] of [["prev", "prev"], ["toggle", "toggle"], ["next", "next"]]) {
   $(id).addEventListener("click", async () => {
     try { await api(`/api/playback/${action}`, { method: "POST" }); }
-    catch (e) { toast(`Erreur : ${e.message}`); }
+    catch (e) { toast(t("toast.error", { error: e.message })); }
   });
 }
 
@@ -338,7 +365,7 @@ $("volume").addEventListener("input", (e) => {
 });
 $("volume").addEventListener("change", async (e) => {
   try { await api("/api/volume", { method: "POST", body: JSON.stringify({ volume: e.target.value / 100 }) }); }
-  catch (err) { toast(`Erreur : ${err.message}`); }
+  catch (err) { toast(t("toast.error", { error: err.message })); }
   finally { dragging = false; }
 });
 
@@ -350,7 +377,7 @@ $("qobuz-login").addEventListener("click", async () => {
     $("login-url").textContent = url;
     $("login-url-box").hidden = false;
     window.open(url, "_blank", "noopener");
-  } catch (e) { toast(`Erreur : ${e.message}`); }
+  } catch (e) { toast(t("toast.error", { error: e.message })); }
   finally { $("qobuz-login").disabled = false; }
 });
 
@@ -367,7 +394,7 @@ async function refreshWifi() {
     const w = await api("/api/wifi/status");
     // The helper reports its own failures in-band, so a 200 does not by itself
     // mean the query worked.
-    if (w.ok === false) throw new Error(w.error || "statut indisponible");
+    if (w.ok === false) throw new Error(w.error || t("wifi.unavailable"));
     $("wifi-ssid").textContent = w.ssid || "—";
     $("wifi-ip").textContent = w.ip || "—";
     if (w.signal != null) {
@@ -378,42 +405,44 @@ async function refreshWifi() {
     out.hidden = true;
   } catch (e) {
     // Previously swallowed, which left three dashes on screen and no clue why.
-    setFact($("wifi-ssid"), "indisponible", "warn");
+    setFact($("wifi-ssid"), t("wifi.unavailable"), "warn");
     out.hidden = false;
     out.className = "hint warn";
-    out.textContent = `Impossible de lire l'état du Wi-Fi : ${e.message}`;
+    out.textContent = t("wifi.status_failed", { error: e.message });
   }
+}
+
+// Placeholder option is rebuilt on language change, hence not in the markup.
+function resetWifiSelect(sel) {
+  sel.innerHTML = "";
+  sel.add(new Option(t("wifi.scan_placeholder"), ""));
 }
 
 $("wifi-scan").addEventListener("click", async () => {
   const btn = $("wifi-scan");
-  btn.disabled = true; btn.textContent = "Recherche…";
+  btn.disabled = true; btn.textContent = t("wifi.scanning");
   try {
     const { networks } = await api("/api/wifi/scan");
     const sel = $("wifi-ssid-select");
     const current = $("wifi-ssid").textContent;
     sel.innerHTML = "";
     for (const n of networks) {
-      const lock = n.security && n.security !== "--" ? " 🔒" : "";
+      const lock = n.security && n.security !== "--" ? " ·" : "";
       sel.add(new Option(`${n.ssid} — ${n.signal}%${lock}`, n.ssid));
     }
     if (networks.some((n) => n.ssid === current)) sel.value = current;
-    toast(`${networks.length} réseau(x) trouvé(s)`);
-  } catch (e) { toast(`Échec du scan : ${e.message}`); }
-  finally { btn.disabled = false; btn.textContent = "Rechercher"; }
+    toast(t("wifi.found", { count: networks.length }));
+  } catch (e) { toast(t("wifi.scan_failed", { error: e.message })); }
+  finally { btn.disabled = false; btn.textContent = t("wifi.scan"); }
 });
 
 $("wifi-connect").addEventListener("click", async () => {
   const ssid = $("wifi-ssid-select").value;
-  if (!ssid) { toast("Choisissez d'abord un réseau"); return; }
-  const warning = `Se connecter à « ${ssid} » ?\n\n` +
-    `Si la connexion échoue, l'appareil reviendra automatiquement au réseau actuel.\n` +
-    `Si elle réussit et qu'il s'agit d'un autre réseau, cette page ne répondra plus : ` +
-    `il faudra rejoindre « ${ssid} » pour retrouver le streamer.`;
-  if (!confirm(warning)) return;
+  if (!ssid) { toast(t("wifi.pick_first")); return; }
+  if (!confirm(t("wifi.confirm", { ssid }))) return;
 
   const btn = $("wifi-connect"), out = $("wifi-result");
-  btn.disabled = true; btn.textContent = "Connexion…";
+  btn.disabled = true; btn.textContent = t("wifi.connecting");
   out.hidden = true;
   try {
     const r = await api("/api/wifi", {
@@ -424,18 +453,18 @@ $("wifi-connect").addEventListener("click", async () => {
     out.hidden = false;
     if (r.ok) {
       out.className = "hint";
-      out.textContent = `Connecté à « ${r.ssid} ».`;
+      out.textContent = t("wifi.connected", { ssid: r.ssid });
       refreshWifi();
     } else {
       out.className = "hint warn";
-      out.textContent = `Échec : ${r.error}. Réseau restauré : « ${r.restored || "aucun"} ».`;
+      out.textContent = t("wifi.failed",
+        { error: r.error, restored: r.restored || t("wifi.none") });
     }
   } catch (e) {
     out.hidden = false; out.className = "hint warn";
     // A timeout here often means the switch worked and took the link with it.
-    out.textContent = `Pas de réponse (${e.message}). Si le réseau a changé, ` +
-      `rejoignez-le et rechargez cette page.`;
-  } finally { btn.disabled = false; btn.textContent = "Se connecter à ce réseau"; }
+    out.textContent = t("wifi.no_response", { error: e.message });
+  } finally { btn.disabled = false; btn.textContent = t("wifi.connect"); }
 });
 
 /* ---------- password ---------- */
@@ -449,9 +478,10 @@ $("pw-save").addEventListener("click", async () => {
       body: JSON.stringify({ current: $("pw-current").value, new: $("pw-new").value }),
     });
     $("pw-current").value = $("pw-new").value = "";
-    out.hidden = false; out.className = "hint"; out.textContent = "Mot de passe modifié.";
+    out.hidden = false; out.className = "hint"; out.textContent = t("security.changed");
   } catch (e) {
-    out.hidden = false; out.className = "hint warn"; out.textContent = `Échec : ${e.message}`;
+    out.hidden = false; out.className = "hint warn";
+    out.textContent = t("security.failed", { error: e.message });
   }
 });
 
@@ -466,8 +496,7 @@ function connectEvents() {
 /* ---------- boot ---------- */
 
 // One entry point for both paths, so logging in and reloading the page end up
-// in exactly the same state. Previously the login path started SSE but never
-// the poll, so settings and health went stale until the next reload.
+// in exactly the same state.
 let pollTimer = null;
 
 async function start() {
@@ -479,6 +508,12 @@ async function start() {
 }
 
 (async () => {
+  // Translations first: otherwise the gate would flash untranslated keys.
+  await I18N.init();
+  resetWifiSelect($("wifi-ssid-select"));
+  document.addEventListener("i18n:changed", () => {
+    if (!$("wifi-ssid-select").value) resetWifiSelect($("wifi-ssid-select"));
+  });
   try {
     const sess = await api("/api/session");
     if (!sess.password_configured) { showGate("setup"); return; }

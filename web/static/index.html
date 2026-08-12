@@ -1,40 +1,50 @@
 <!doctype html>
-<html lang="fr">
+<!-- lang is set at runtime by i18n.js once the locale is resolved. -->
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f1115">
+<meta name="theme-color" content="#0b0e14">
 <title>Pi Streamer</title>
 <link rel="stylesheet" href="/static/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🎵</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='none' stroke='%23b08d3f' stroke-width='2'/><circle cx='16' cy='16' r='2.5' fill='%23b08d3f'/></svg>">
 </head>
 <body>
 
 <!-- Login ------------------------------------------------------------- -->
 <div id="gate" class="gate" hidden>
-  <form id="login-form" class="card gate-card" hidden>
-    <h1 class="gate-title">Pi&nbsp;Streamer</h1>
-    <p class="muted">Accès protégé</p>
-    <input id="password" type="password" placeholder="Mot de passe" autocomplete="current-password" required>
-    <button type="submit" class="btn btn-primary">Se connecter</button>
-    <p id="login-error" class="error" hidden></p>
-  </form>
+  <div class="gate-inner">
+    <form id="login-form" class="card gate-card" hidden>
+      <h1 class="gate-title">Pi&nbsp;Streamer</h1>
+      <p class="muted" data-i18n="gate.login.subtitle"></p>
+      <input id="password" type="password" data-i18n-placeholder="gate.login.password"
+             autocomplete="current-password" required>
+      <button type="submit" class="btn btn-primary" data-i18n="gate.login.submit"></button>
+      <p id="login-error" class="error" hidden></p>
+    </form>
 
-  <!-- First-run claim: only reachable while no password exists. -->
-  <form id="setup-form" class="card gate-card" hidden>
-    <h1 class="gate-title">Bienvenue</h1>
-    <p class="muted">Choisissez un mot de passe pour protéger cet appareil.</p>
-    <div class="banner warn setup-warn">
-      Tant qu'aucun mot de passe n'est défini, n'importe qui sur votre réseau
-      peut configurer ce streamer. Définissez-le maintenant.
+    <!-- First-run claim: only reachable while no password exists. -->
+    <form id="setup-form" class="card gate-card" hidden>
+      <h1 class="gate-title" data-i18n="gate.setup.title"></h1>
+      <p class="muted" data-i18n="gate.setup.subtitle"></p>
+      <div class="banner warn setup-warn">
+        <span data-i18n="gate.setup.warning"></span>
+      </div>
+      <input id="new-password" type="password" data-i18n-placeholder="gate.setup.password"
+             autocomplete="new-password" minlength="8" required>
+      <input id="new-password2" type="password" data-i18n-placeholder="gate.setup.confirm"
+             autocomplete="new-password" minlength="8" required>
+      <button type="submit" class="btn btn-primary" data-i18n="gate.setup.submit"></button>
+      <p id="setup-error" class="error" hidden></p>
+    </form>
+
+    <!-- Language must be reachable before signing in. -->
+    <div class="lang" role="group" data-i18n-aria-label="lang.label">
+      <button type="button" class="lang-btn" data-lang="en">EN</button>
+      <span class="lang-sep" aria-hidden="true">·</span>
+      <button type="button" class="lang-btn" data-lang="fr">FR</button>
     </div>
-    <input id="new-password" type="password" placeholder="Mot de passe (8 caractères min.)"
-           autocomplete="new-password" minlength="8" required>
-    <input id="new-password2" type="password" placeholder="Confirmer"
-           autocomplete="new-password" minlength="8" required>
-    <button type="submit" class="btn btn-primary">Définir et continuer</button>
-    <p id="setup-error" class="error" hidden></p>
-  </form>
+  </div>
 </div>
 
 <!-- App --------------------------------------------------------------- -->
@@ -47,7 +57,13 @@
     </div>
     <div class="topbar-right">
       <span id="subscription" class="pill"></span>
-      <button id="logout" class="btn btn-ghost" title="Se déconnecter">Quitter</button>
+      <div class="lang" role="group" data-i18n-aria-label="lang.label">
+        <button type="button" class="lang-btn" data-lang="en">EN</button>
+        <span class="lang-sep" aria-hidden="true">·</span>
+        <button type="button" class="lang-btn" data-lang="fr">FR</button>
+      </div>
+      <button id="logout" class="btn btn-ghost"
+              data-i18n="topbar.logout" data-i18n-title="topbar.logout"></button>
     </div>
   </header>
 
@@ -56,7 +72,13 @@
   <!-- Now playing --------------------------------------------------- -->
   <section class="card player">
     <img id="art" class="art" alt="" hidden>
-    <div id="art-empty" class="art art-empty" aria-hidden="true">♪</div>
+    <div id="art-empty" class="art art-empty" aria-hidden="true">
+      <!-- A record, echoing the signal-path diagram in the brand book. -->
+      <svg viewBox="0 0 48 48" class="icon-disc">
+        <circle cx="24" cy="24" r="16" fill="none" stroke="currentColor" stroke-width="1.25"/>
+        <circle cx="24" cy="24" r="3" fill="currentColor"/>
+      </svg>
+    </div>
 
     <div class="player-body">
       <div class="track">
@@ -71,12 +93,38 @@
       </div>
 
       <div class="controls">
-        <button id="prev" class="btn btn-icon" title="Précédent">⏮</button>
-        <button id="toggle" class="btn btn-icon btn-play" title="Lecture / pause">▶</button>
-        <button id="next" class="btn btn-icon" title="Suivant">⏭</button>
+        <button id="prev" class="btn btn-icon"
+                data-i18n-title="player.prev" data-i18n-aria-label="player.prev">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 4h2.2v12H5zM16 4v12l-7.4-6z"/></svg>
+        </button>
+
+        <!-- Both glyphs live in the button; a class decides which shows, so no
+             markup is rebuilt on every state update. -->
+        <button id="toggle" class="btn btn-icon btn-play"
+                data-i18n-title="player.play_pause" data-i18n-aria-label="player.play_pause">
+          <svg viewBox="0 0 20 20" class="i-play" aria-hidden="true"><path d="M6 3.5l10.5 6.5L6 16.5z"/></svg>
+          <svg viewBox="0 0 20 20" class="i-pause" aria-hidden="true"><path d="M5.8 4H9v12H5.8zM11 4h3.2v12H11z"/></svg>
+        </button>
+
+        <button id="next" class="btn btn-icon"
+                data-i18n-title="player.next" data-i18n-aria-label="player.next">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.8 4H15v12h-2.2zM4 4v12l7.4-6z"/></svg>
+        </button>
+
         <div class="vol">
-          <span id="vol-icon" aria-hidden="true">🔊</span>
-          <input id="volume" type="range" min="0" max="100" value="0" aria-label="Volume">
+          <span id="vol-icon" class="vol-icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20">
+              <path d="M3 7.5h3.2L10.5 4v12L6.2 12.5H3z" fill="currentColor"/>
+              <path class="w1" d="M13.2 7.9a3 3 0 010 4.2" fill="none"
+                    stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              <path class="w2" d="M15.4 5.9a6 6 0 010 8.2" fill="none"
+                    stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+              <path class="wx" d="M13.4 8l4 4M17.4 8l-4 4" fill="none"
+                    stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <input id="volume" type="range" min="0" max="100" value="0"
+                 data-i18n-aria-label="player.volume">
           <span id="vol-val" class="time">0%</span>
         </div>
       </div>
@@ -85,135 +133,129 @@
     </div>
   </section>
 
-  <!-- Audio quality ------------------------------------------------- -->
+  <!-- Audio output --------------------------------------------------- -->
   <section class="card">
-    <h3>Sortie audio</h3>
+    <h3 data-i18n="audio.title"></h3>
     <dl class="facts">
-      <div><dt>Format en cours</dt><dd id="fmt">—</dd></div>
-      <div><dt>Bit-perfect</dt><dd id="bitperfect">—</dd></div>
-      <div><dt>DAC</dt><dd id="dac-state">—</dd></div>
+      <div><dt data-i18n="audio.fact_format"></dt><dd id="fmt">—</dd></div>
+      <div><dt data-i18n="audio.fact_bitperfect"></dt><dd id="bitperfect">—</dd></div>
+      <div><dt data-i18n="audio.fact_dac"></dt><dd id="dac-state">—</dd></div>
     </dl>
 
     <label class="field">
-      <span>Convertisseur (DAC)</span>
+      <span data-i18n="audio.device_label"></span>
       <select id="device"></select>
       <small id="device-caps" class="hint"></small>
     </label>
 
     <label class="field">
-      <span>Qualité de lecture</span>
+      <span data-i18n="audio.quality_label"></span>
       <select id="quality"></select>
     </label>
 
     <label class="field">
-      <span>Contrôle du volume</span>
+      <span data-i18n="audio.volume_mode_label"></span>
       <select id="volume-mode"></select>
-      <small class="hint">« locked » désactive le volume logiciel : le flux n'est
-        jamais retouché, votre ampli gère le niveau.</small>
+      <small class="hint" data-i18n="audio.volume_mode_hint"></small>
     </label>
 
     <div class="field field-row">
       <div class="field-text">
-        <span>Lecture sans blanc (gapless)</span>
-        <small class="hint">Enchaîne les pistes sans silence — utile sur un live
-          ou un mix continu. Revers connu : le préchargement peut ignorer un
-          changement de morceau demandé depuis l'app Qobuz, qui continue alors
-          de jouer la piste précédente.</small>
+        <span data-i18n="audio.gapless_label"></span>
+        <small class="hint" data-i18n="audio.gapless_hint"></small>
       </div>
       <label class="switch">
         <input id="gapless" type="checkbox">
         <span class="slider" aria-hidden="true"></span>
-        <span class="sr-only">Activer la lecture sans blanc</span>
+        <span class="sr-only" data-i18n="audio.gapless_sr"></span>
       </label>
     </div>
   </section>
 
-  <!-- Qobuz ---------------------------------------------------------- -->
+  <!-- Qobuz account -------------------------------------------------- -->
   <section class="card">
-    <h3>Compte Qobuz</h3>
+    <h3 data-i18n="qobuz.title"></h3>
     <dl class="facts">
-      <div><dt>État</dt><dd id="auth-state">—</dd></div>
-      <div><dt>Identifiant</dt><dd id="user-id">—</dd></div>
+      <div><dt data-i18n="qobuz.fact_state"></dt><dd id="auth-state">—</dd></div>
+      <div><dt data-i18n="qobuz.fact_user"></dt><dd id="user-id">—</dd></div>
     </dl>
     <div class="row">
-      <button id="qobuz-login" class="btn">Se connecter à Qobuz</button>
-      <button id="qobuz-logout" class="btn btn-ghost">Déconnecter</button>
+      <button id="qobuz-login" class="btn"></button>
+      <button id="qobuz-logout" class="btn btn-ghost" data-i18n="qobuz.logout"></button>
     </div>
     <div id="login-url-box" class="url-box" hidden>
-      <p class="hint">Ouvrez ce lien dans votre navigateur pour autoriser l'appareil :</p>
+      <p class="hint" data-i18n="qobuz.url_hint"></p>
       <a id="login-url" href="#" target="_blank" rel="noopener"></a>
     </div>
   </section>
 
   <!-- Qobuz Connect -------------------------------------------------- -->
   <section class="card">
-    <h3>Qobuz Connect</h3>
+    <h3 data-i18n="qconnect.title"></h3>
     <dl class="facts">
-      <div><dt>État</dt><dd id="qc-state">—</dd></div>
-      <div><dt>Session</dt><dd id="qc-session">—</dd></div>
+      <div><dt data-i18n="qconnect.fact_state"></dt><dd id="qc-state">—</dd></div>
+      <div><dt data-i18n="qconnect.fact_session"></dt><dd id="qc-session">—</dd></div>
     </dl>
     <label class="field">
-      <span>Nom affiché dans l'application Qobuz</span>
+      <span data-i18n="qconnect.name_label"></span>
       <input id="qc-name" type="text" maxlength="40">
     </label>
   </section>
 
-  <!-- Health --------------------------------------------------------- -->
+  <!-- System --------------------------------------------------------- -->
   <section class="card">
-    <h3>État du système</h3>
+    <h3 data-i18n="system.title"></h3>
     <dl class="facts">
-      <div><dt>Alimentation</dt><dd id="power">—</dd></div>
-      <div><dt>Température</dt><dd id="temp">—</dd></div>
-      <div><dt>Démon</dt><dd id="uptime">—</dd></div>
+      <div><dt data-i18n="system.fact_power"></dt><dd id="power">—</dd></div>
+      <div><dt data-i18n="system.fact_temp"></dt><dd id="temp">—</dd></div>
+      <div><dt data-i18n="system.fact_daemon"></dt><dd id="uptime">—</dd></div>
     </dl>
   </section>
 
   <!-- Wi-Fi ---------------------------------------------------------- -->
   <section class="card">
-    <h3>Réseau Wi-Fi</h3>
+    <h3 data-i18n="wifi.title"></h3>
     <dl class="facts">
-      <div><dt>Réseau actuel</dt><dd id="wifi-ssid">—</dd></div>
-      <div><dt>Signal</dt><dd id="wifi-signal">—</dd></div>
-      <div><dt>Adresse IP</dt><dd id="wifi-ip">—</dd></div>
+      <div><dt data-i18n="wifi.fact_current"></dt><dd id="wifi-ssid">—</dd></div>
+      <div><dt data-i18n="wifi.fact_signal"></dt><dd id="wifi-signal">—</dd></div>
+      <div><dt data-i18n="wifi.fact_ip"></dt><dd id="wifi-ip">—</dd></div>
     </dl>
 
     <div class="banner warn">
-      <strong>À manier avec précaution</strong>
-      Vous consultez cette page <em>via</em> le Wi-Fi. En cas d'échec, l'appareil
-      revient automatiquement au réseau précédent. Mais si vous changez de réseau
-      avec succès, le Pi disparaîtra de celui-ci — il faudra rejoindre le nouveau
-      pour le retrouver.
+      <strong data-i18n="wifi.warning_title"></strong>
+      <span data-i18n="wifi.warning_body"></span>
     </div>
 
     <label class="field">
-      <span>Réseau</span>
+      <span data-i18n="wifi.network_label"></span>
       <div class="row">
-        <select id="wifi-ssid-select" style="flex:1"><option value="">— rechercher —</option></select>
-        <button id="wifi-scan" type="button" class="btn">Rechercher</button>
+        <select id="wifi-ssid-select" class="grow"></select>
+        <button id="wifi-scan" type="button" class="btn" data-i18n="wifi.scan"></button>
       </div>
     </label>
 
     <label class="field">
-      <span>Mot de passe du réseau</span>
-      <input id="wifi-psk" type="password" autocomplete="off" placeholder="Laisser vide si réseau ouvert">
+      <span data-i18n="wifi.psk_label"></span>
+      <input id="wifi-psk" type="password" autocomplete="off"
+             data-i18n-placeholder="wifi.psk_placeholder">
     </label>
 
-    <button id="wifi-connect" type="button" class="btn btn-primary">Se connecter à ce réseau</button>
+    <button id="wifi-connect" type="button" class="btn btn-primary" data-i18n="wifi.connect"></button>
     <p id="wifi-result" class="hint" hidden></p>
   </section>
 
   <!-- Security -------------------------------------------------------- -->
   <section class="card">
-    <h3>Sécurité</h3>
+    <h3 data-i18n="security.title"></h3>
     <label class="field">
-      <span>Mot de passe actuel</span>
+      <span data-i18n="security.current_label"></span>
       <input id="pw-current" type="password" autocomplete="current-password">
     </label>
     <label class="field">
-      <span>Nouveau mot de passe (8 caractères min.)</span>
+      <span data-i18n="security.new_label"></span>
       <input id="pw-new" type="password" autocomplete="new-password" minlength="8">
     </label>
-    <button id="pw-save" type="button" class="btn">Changer le mot de passe</button>
+    <button id="pw-save" type="button" class="btn" data-i18n="security.save"></button>
     <p id="pw-result" class="hint" hidden></p>
   </section>
 
@@ -223,6 +265,7 @@
 </main>
 
 <div id="toast" class="toast" hidden></div>
+<script src="/static/i18n.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

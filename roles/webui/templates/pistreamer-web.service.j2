@@ -15,6 +15,13 @@ ExecStart={{ webui_dir }}/venv/bin/uvicorn app:app --host {{ webui_bind }} --por
 Restart=on-failure
 RestartSec=5
 
+# The SSE endpoint holds a connection open indefinitely, so uvicorn never
+# finishes a graceful shutdown on its own and systemd waited the full 90 s
+# default before SIGKILL — making every redeploy take a minute and a half.
+# Ten seconds is ample for a handful of local clients.
+TimeoutStopSec=10
+KillMode=mixed
+
 # Modest hardening. The app runs subprocesses (the qbzd CLI, and the network
 # helper through sudo), so it cannot be fully locked down — but it has no
 # business writing outside its own directory.
