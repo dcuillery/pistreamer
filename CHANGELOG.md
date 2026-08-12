@@ -46,6 +46,12 @@ failure you cannot see is the expensive kind.
   Both were required for the wizard to write a password at all.
 - Settings are written atomically (`os.replace`), so an interrupted write cannot
   leave a truncated config and lock you out.
+- **Playback quality now degrades instead of failing.** `audio.allow_quality_fallback`
+  is `true` and `audio.quality_fallback_behavior` is `always_fallback`, so a hi-res
+  stream is downsampled to whatever the DAC accepts rather than refused.
+- `playback.quality` is pinned to `cd` for the currently connected DAC, with the
+  per-device options documented in `group_vars/all.yml`. This value **must** match the
+  hardware; it is not a preference.
 
 ### Fixed
 
@@ -74,6 +80,38 @@ failure you cannot see is the expensive kind.
 - **The Wi-Fi panel swallowed its own errors**, showing three dashes and no
   explanation while the server was returning a perfectly clear message. Failures are
   now surfaced in the panel.
+- **Playback stopped, with the daemon emitting an unbounded stream of errors**
+  (30 147 lines observed):
+
+  ```
+  audio stream error: A backend-specific error has occurred:
+                      `alsa::poll()` returned POLLERR
+  ```
+
+  The cause was a **format the DAC cannot provide**. `playback.quality` was
+  `hires_plus` (24-bit) against a TI PCM2706 that reports `S16_LE` only, and
+  `audio.allow_quality_fallback` was `false` — i.e. *fail rather than reduce
+  quality*. In exclusive mode with the `hw:` plugin there is no conversion layer, so
+  ALSA simply refuses and the stream dies.
+
+  Two details worth remembering:
+
+  - **Capping the sample rate was not sufficient.** `audio.device_max_sample_rate`
+    fixed the frequency but not the bit depth, and 24-bit is what this converter
+    cannot do at all. Only lowering `playback.quality` resolved it.
+  - **It looked like a hardware fault and was not.** Sending silence straight to
+    ALSA proved the stack healthy and isolated the fault to the daemon's
+    configuration:
+
+    ```
+    aplay -D hw:CARD=DAC,DEV=0 -f S16_LE -r 44100 -c 2 -d 15 /dev/zero
+      → exit 0, no kernel errors
+    aplay -D hw:CARD=DAC,DEV=0 -f S24_3LE -r 96000 ...
+      → Sample format non available. Available formats: - S16_LE
+    ```
+
+    Power (`throttled=0x0`), temperature, CPU governor, USB bus and Wi-Fi signal
+    were all ruled out by measurement before the configuration was touched.
 - **Provisioning aborted when the DAC was switched off.** A powered-down DAC
   de-enumerates from USB and vanishes from `/proc/asound/cards` — normal behaviour,
   not a fault. Auto-detection now keeps the configured device and only fails when

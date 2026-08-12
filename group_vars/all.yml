@@ -47,8 +47,26 @@ qbzd_settings:
   audio.alsa_plugin: hw               # hw, never plughw — plughw resamples
   audio.exclusive_mode: "true"        # nothing else may open the card
   audio.reserve_dac_while_running: "true"
-  audio.limit_quality_to_device: "true"   # V90-DAC tops out at 24/96
-  playback.quality: hires_plus
+  audio.limit_quality_to_device: "true"
+
+  # Requesting a format the DAC cannot provide is fatal, not graceful: with
+  # exclusive mode and the hw: plugin there is no conversion layer, so ALSA
+  # refuses and the daemon emits an endless stream of
+  #   audio stream error: `alsa::poll()` returned POLLERR
+  # and the music stops. These two make it downsample instead of failing.
+  audio.allow_quality_fallback: "true"
+  audio.quality_fallback_behavior: always_fallback   # or always_skip
+
+  # MUST match what your DAC can actually accept — check with `make dacs`.
+  #   cd          16-bit / 44.1 kHz   e.g. TI PCM2706 (16-bit, 48 kHz max)
+  #   hires       24-bit / 96 kHz     e.g. Musical Fidelity V90-DAC
+  #   hires_plus  24-bit / up to 192 kHz
+  #
+  # Set to `cd` for the PCM2706 currently connected: it reports S16_LE only,
+  # so 24-bit cannot be negotiated at all. Fallback alone is not enough —
+  # `hires_plus` still failed on this device. Raise it when you attach a DAC
+  # that reports 24-bit support.
+  playback.quality: cd
   qconnect.device_name: "Pi Streamer"
   qconnect.startup_mode: "on"
   qconnect.volume_mode: "software" # ("locked" or "software")
