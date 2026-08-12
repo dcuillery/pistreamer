@@ -1,0 +1,96 @@
+#!/bin/bash
+# Managed by pistreamer — privileged network helper.
+#
+# The web UI runs as an unprivileged user and cannot modify NetworkManager
+# connections ("Insufficient privileges"). Rather than granting the service
+# blanket nmcli access, it may run only this script, whose surface is three
+# fixed subcommands.
+#
+# The Wi-Fi passphrase is read from STDIN, never from argv: arguments are
+# visible to every user on the box via `ps`.
+#
+# Changing Wi-Fi over Wi-Fi can strand the device. `connect` therefore always
+# records the currently active profile, and restores it if the new network
+# fails to come up within the timeout.
+
+set -euo pipefail
+
+IFACE="${PISTREAMER_WIFI_IFACE:-wlan0}"
+TIMEOUT=30
+
+die() { printf '{"ok":false,"error":%s}\n' "$(printf '%s' "$1" | sed 's/"/\\"/g;s/^/"/;s/$/"/')"; exit 1; }
+
+case "${1:-}" in
+
+  scan)
+    # Raw nmcli output, deliberately: building JSON in awk means hand-escaping
+    # SSIDs that may contain quotes, backslashes or colons. The caller parses
+    # these lines in Python, where escaping is not guesswork.
+    # nmcli -t escapes literal colons inside values as '\:'.
+    nmcli -t -f SSID,SIGNAL,SECURITY device wifi list ifname "$IFACE" --rescan auto
+    ;;
+
+  status)
+    # The real SSID comes from the scan list, not GENERAL.CONNECTION — that
+    # reports the *profile* name, which on a netplan-managed system reads
+    # "netplan-wlan0-LesMilans" rather than "LesMilans".
+    ssid=$(nmcli -t -f IN-USE,SSID device wifi list ifname "$IFACE" 2>/dev/null \
+           | awk -F: '$1=="*"{sub(/^\*:/,""); print; exit}' || true)
+    profile=$(nmcli -t -f GENERAL.CONNECTION device show "$IFACE" 2>/dev/null | cut -d: -f2- || true)
+    [ -n "$ssid" ] || ssid="$profile"
+    state=$(nmcli -t -f GENERAL.STATE device show "$IFACE" 2>/dev/null | cut -d: -f2- || true)
+    ip=$(nmcli -t -f IP4.ADDRESS device show "$IFACE" 2>/dev/null | cut -d: -f2- | head -1 || true)
+    signal=$(nmcli -t -f IN-USE,SIGNAL device wifi list ifname "$IFACE" 2>/dev/null \
+             | awk -F: '$1=="*"{print $2; exit}' || true)
+    printf '{"ok":true,"ssid":"%s","profile":"%s","state":"%s","ip":"%s","signal":%s}\n' \
+      "${ssid:-}" "${profile:-}" "${state:-}" "${ip:-}" "${signal:-null}"
+    ;;
+
+  connect)
+    ssid="${2:-}"
+    [ -n "$ssid" ] || die "missing ssid"
+    # Passphrase on stdin, never argv.
+    psk="$(cat || true)"
+
+    previous=$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null \
+               | awk -F: -v d="$IFACE" '$2==d{print $1; exit}' || true)
+
+    if [ -n "$psk" ]; then
+      set +e
+      out=$(nmcli --wait "$TIMEOUT" device wifi connect "$ssid" password "$psk" ifname "$IFACE" 2>&1)
+      rc=$?
+      set -e
+    else
+      set +e
+      out=$(nmcli --wait "$TIMEOUT" device wifi connect "$ssid" ifname "$IFACE" 2>&1)
+      rc=$?
+      set -e
+    fi
+
+    # Trust the interface state, not nmcli's exit code: it can report success
+    # while association is still failing.
+    sleep 2
+    now=$(nmcli -t -f GENERAL.CONNECTION device show "$IFACE" 2>/dev/null | cut -d: -f2- || true)
+    state=$(nmcli -t -f GENERAL.STATE device show "$IFACE" 2>/dev/null | cut -d: -f2- || true)
+
+    if [ $rc -eq 0 ] && printf '%s' "$state" | grep -qi "connected"; then
+      printf '{"ok":true,"ssid":"%s","previous":"%s"}\n' "$now" "${previous:-}"
+      exit 0
+    fi
+
+    # Failed — put the old profile back so the device stays reachable.
+    if [ -n "$previous" ]; then
+      nmcli --wait "$TIMEOUT" connection up "$previous" >/dev/null 2>&1 || true
+      restored=$(nmcli -t -f GENERAL.CONNECTION device show "$IFACE" 2>/dev/null | cut -d: -f2- || true)
+    else
+      restored=""
+    fi
+    printf '{"ok":false,"error":%s,"restored":"%s"}\n' \
+      "$(printf '%s' "$out" | tr -d '\n' | sed 's/"/\\"/g;s/^/"/;s/$/"/')" "${restored:-}"
+    exit 1
+    ;;
+
+  *)
+    die "usage: pistreamer-net scan|status|connect <ssid> (passphrase on stdin)"
+    ;;
+esac

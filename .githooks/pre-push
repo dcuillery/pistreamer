@@ -1,0 +1,52 @@
+#!/bin/bash
+# Managed by pistreamer — refuse to publish a version tag that the CHANGELOG
+# does not document.
+#
+# This is the safety net behind `make release`. Tagging by hand is easy to do
+# in a hurry, and a released version with no changelog entry is exactly the
+# thing nobody goes back to fix.
+#
+# Enable with:  make hooks    (sets core.hooksPath to .githooks)
+#
+# git feeds pre-push one line per ref on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+
+set -euo pipefail
+
+CHANGELOG="$(git rev-parse --show-toplevel)/CHANGELOG.md"
+SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-+][0-9A-Za-z.-]+)*$'
+status=0
+
+while read -r local_ref local_sha _remote_ref _remote_sha; do
+  # Deletions push the all-zero sha; nothing to check.
+  [[ "$local_sha" =~ ^0+$ ]] && continue
+  [[ "$local_ref" == refs/tags/* ]] || continue
+
+  version="${local_ref#refs/tags/}"
+  version="${version#v}"
+
+  # Only guard version tags; other tags are free-form.
+  [[ "$version" =~ $SEMVER ]] || continue
+
+  if [ ! -f "$CHANGELOG" ]; then
+    echo "pre-push: CHANGELOG.md is missing, cannot verify tag $version" >&2
+    status=1
+    continue
+  fi
+
+  if ! grep -qE "^## \[${version//./\\.}\]" "$CHANGELOG"; then
+    echo >&2
+    echo "pre-push: refusing to push tag '$version'." >&2
+    echo "  CHANGELOG.md has no '## [$version]' section." >&2
+    echo >&2
+    echo "  Roll the release properly instead of tagging by hand:" >&2
+    echo "      git tag -d $version" >&2
+    echo "      make release VERSION=$version" >&2
+    echo >&2
+    echo "  To bypass this check once:  git push --no-verify" >&2
+    echo >&2
+    status=1
+  fi
+done
+
+exit $status

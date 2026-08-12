@@ -106,6 +106,18 @@ hwparams: guard-inventory  ## Show the rate/format the DAC is actually receiving
 shell: guard-inventory  ## SSH into the Pi
 	$(SSH)
 
+## ---- release ---------------------------------------------------------------
+
+hooks:  ## Enable the repo's git hooks (changelog guard on tag push)
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/* 2>/dev/null || true
+	@echo "git hooks enabled from .githooks/"
+
+release:  ## Roll [Unreleased] into a version, commit and tag: make release VERSION=0.2.0
+	@test -n "$(VERSION)" || { \
+	  echo "usage: make release VERSION=0.2.0"; exit 1; }
+	@python3 scripts/release.py "$(VERSION)"
+
 .PHONY: help guard-inventory ping check provision reboot dacs setup login web \
-        settings-show status logs boots restart upgrade hwparams shell \
+        settings-show status logs boots restart upgrade hwparams shell hooks release \
         webui-password web-logs open
