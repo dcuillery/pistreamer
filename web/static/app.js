@@ -209,6 +209,12 @@ function renderAudio(s) {
   fillSelect($("quality"), s.choices.quality, QUALITY_LABELS, s.settings?.["playback.quality"]);
   fillSelect($("volume-mode"), s.choices.volume_mode, VOLUME_LABELS,
              s.settings?.["qconnect.volume_mode"]);
+
+  // qbzd stores booleans as the strings "true"/"false".
+  // Skip while focused so a poll cannot flip the switch under the user's finger.
+  if (document.activeElement !== $("gapless")) {
+    $("gapless").checked = s.settings?.["audio.gapless_enabled"] === "true";
+  }
 }
 
 function fillSelect(sel, values, labels, current) {
@@ -280,6 +286,19 @@ async function save(key, value) {
 $("device").addEventListener("change", (e) => save("audio.device", e.target.value));
 $("quality").addEventListener("change", (e) => save("playback.quality", e.target.value));
 $("volume-mode").addEventListener("change", (e) => save("qconnect.volume_mode", e.target.value));
+
+$("gapless").addEventListener("change", async (e) => {
+  const el = e.target;
+  const wanted = el.checked;
+  el.disabled = true;
+  try {
+    await save("audio.gapless_enabled", wanted ? "true" : "false");
+  } finally {
+    el.disabled = false;
+  }
+  // save() re-renders from the daemon's reply, so the switch reflects what was
+  // actually stored rather than what was clicked.
+});
 
 let nameTimer;
 $("qc-name").addEventListener("input", (e) => {

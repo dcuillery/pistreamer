@@ -111,6 +111,21 @@
       <small class="hint">« locked » désactive le volume logiciel : le flux n'est
         jamais retouché, votre ampli gère le niveau.</small>
     </label>
+
+    <div class="field field-row">
+      <div class="field-text">
+        <span>Lecture sans blanc (gapless)</span>
+        <small class="hint">Enchaîne les pistes sans silence — utile sur un live
+          ou un mix continu. Revers connu : le préchargement peut ignorer un
+          changement de morceau demandé depuis l'app Qobuz, qui continue alors
+          de jouer la piste précédente.</small>
+      </div>
+      <label class="switch">
+        <input id="gapless" type="checkbox">
+        <span class="slider" aria-hidden="true"></span>
+        <span class="sr-only">Activer la lecture sans blanc</span>
+      </label>
+    </div>
   </section>
 
   <!-- Qobuz ---------------------------------------------------------- -->

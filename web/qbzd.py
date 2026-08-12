@@ -34,10 +34,16 @@ WRITABLE = {
     "audio.exclusive_mode",
     "audio.reserve_dac_while_running",
     "audio.limit_quality_to_device",
+    "audio.gapless_enabled",
     "playback.quality",
     "qconnect.device_name",
     "qconnect.volume_mode",
 }
+
+# Settings the UI presents as an on/off switch. qbzd stores them as the
+# strings "true"/"false", not JSON booleans.
+BOOLEAN_SETTINGS = {"audio.gapless_enabled", "audio.exclusive_mode",
+                    "audio.reserve_dac_while_running"}
 
 QUALITY_CHOICES = ["mp3", "cd", "hires", "hires_plus"]
 VOLUME_MODES = ["software", "locked"]

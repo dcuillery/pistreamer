@@ -260,6 +260,64 @@
   ansible.builtin.set_fact:
     qbzd_settings_effective: "{{ qbzd_settings | combine({'audio.device': qbzd_device_resolved}) }}"
 
+# --- Seed once, then leave the web UI alone ---------------------------------
+# These settings are editable from the web UI. Re-imposing them on every run
+# would silently undo whatever you changed there — you would toggle gapless,
+# run `make provision` for an unrelated reason, and find it reverted with no
+# indication why.
+#
+# So each key is applied ONCE and then recorded. `qbzd settings show` cannot
+# help here: it always returns a value, so "the user chose false" and "false is
+# the default" are indistinguishable. Hence an explicit ledger of what this
+# role has already seeded.
+#
+# Escape hatch: `make settings-force` re-imposes every value from group_vars.
+
+- name: Ensure the state directory exists
+  ansible.builtin.file:
+    path: "{{ qbzd_seed_file | dirname }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+- name: Read which settings have already been seeded
+  ansible.builtin.slurp:
+    src: "{{ qbzd_seed_file }}"
+  register: qbzd_seed_raw
+  failed_when: false
+  check_mode: false
+
+- name: Parse the ledger
+  ansible.builtin.set_fact:
+    qbzd_seeded: >-
+      {{ (qbzd_seed_raw.content | b64decode | from_json)
+         if (qbzd_seed_raw.content is defined and qbzd_seed_raw.content | length > 0)
+         else [] }}
+
+- name: Decide which settings to apply
+  ansible.builtin.set_fact:
+    # audio.device is always enforced: it is derived from the hardware actually
+    # present, not a preference. Seeding it would break DAC auto-detection —
+    # swap converters and the old device would stay configured forever.
+    qbzd_to_apply: >-
+      {{ qbzd_settings_effective if qbzd_force_settings | bool else
+         (qbzd_settings_effective | dict2items
+          | selectattr('key', 'in', qbzd_always_enforce + (
+              qbzd_settings_effective.keys() | difference(qbzd_seeded) | list))
+          | list | items2dict) }}
+
+- name: Report settings left under UI control
+  ansible.builtin.debug:
+    msg: >-
+      Leaving {{ (qbzd_settings_effective.keys() | list | length)
+                 - (qbzd_to_apply.keys() | list | length) }} already-seeded
+      setting(s) as configured on the device. Use `make settings-force` to
+      re-impose group_vars.
+  when:
+    - not qbzd_force_settings | bool
+    - (qbzd_to_apply.keys() | list | length) < (qbzd_settings_effective.keys() | list | length)
+
 - name: Apply qbzd settings
   ansible.builtin.command:
     argv:
@@ -269,13 +327,22 @@
       - "{{ item.key }}"
       - "{{ item.value }}"
   become: false
-  loop: "{{ qbzd_settings_effective | dict2items }}"
+  loop: "{{ qbzd_to_apply | dict2items }}"
   loop_control:
     label: "{{ item.key }} = {{ item.value }}"
   when:
     - qbzd_settings_now.rc | default(1) == 0
     - qbzd_current[item.key] | default('__unset__') != (item.value | string)
   notify: Restart qbzd
+
+- name: Record what has been seeded
+  ansible.builtin.copy:
+    content: "{{ (qbzd_seeded + (qbzd_settings_effective.keys() | list)) | unique | sort | to_nice_json }}"
+    dest: "{{ qbzd_seed_file }}"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+  when: qbzd_settings_now.rc | default(1) == 0
 
 - name: Note when settings could not be applied
   ansible.builtin.debug:

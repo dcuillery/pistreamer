@@ -62,6 +62,11 @@ login: guard-inventory  ## Re-authenticate only (setup already covers login)
 settings-show: guard-inventory  ## Dump qbzd's live settings keys and values
 	@$(SSH) 'qbzd settings show'
 
+# Normal provisioning seeds each setting once, then leaves the web UI in
+# charge. This re-imposes every value from group_vars, discarding UI changes.
+settings-force: guard-inventory  ## Re-impose ALL settings from group_vars (overrides UI changes)
+	ansible-playbook site.yml --diff --tags qbzd -e qbzd_force_settings=true
+
 ## ---- operations ------------------------------------------------------------
 
 status: guard-inventory  ## Daemon state and now-playing
@@ -119,5 +124,5 @@ release:  ## Roll [Unreleased] into a version, commit and tag: make release VERS
 	@python3 scripts/release.py "$(VERSION)"
 
 .PHONY: help guard-inventory ping check provision reboot dacs setup login web \
-        settings-show status logs boots restart upgrade hwparams shell hooks release \
+        settings-show settings-force status logs boots restart upgrade hwparams shell hooks release \
         webui-password web-logs open

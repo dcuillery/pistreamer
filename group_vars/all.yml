@@ -24,6 +24,21 @@ qbzd_sha256: "adade56509544c00187476d58acef78538d3e5d475370263d98397dc61f200c9"
 # ExecStart=/usr/bin/qbzd run, and that is the path upstream documents.
 qbzd_bin: /usr/bin/qbzd
 
+# --- How settings are applied -----------------------------------------------
+# Each key below is applied ONCE, then recorded in the ledger; afterwards the
+# web UI is authoritative. Without this, changing a setting in the UI and later
+# running `make provision` for any unrelated reason would silently revert it.
+#
+# Set to true (or run `make settings-force`) to re-impose every value here.
+qbzd_force_settings: false
+qbzd_seed_file: /var/lib/pistreamer/qbzd-seeded.json
+
+# Never seeded — always enforced. audio.device is derived from the hardware
+# actually present, so seeding it would freeze the first DAC ever detected and
+# break auto-detection when you swap converters.
+qbzd_always_enforce:
+  - audio.device
+
 # Settings applied declaratively via `qbzd settings set`. The key names were
 # read off a configured device with `qbzd settings show` rather than guessed —
 # see docs/troubleshooting.md. Login stays interactive (OAuth); everything
@@ -47,6 +62,17 @@ qbzd_settings:
   audio.alsa_plugin: hw               # hw, never plughw — plughw resamples
   audio.exclusive_mode: "true"        # nothing else may open the card
   audio.reserve_dac_while_running: "true"
+
+  # Gapless OFF, deliberately. Its prefetch path swallows explicit track
+  # changes sent from the Qobuz app, logging:
+  #     Gapless: format mismatch (current 96000Hz/2ch vs next 44100Hz/2ch),
+  #              ignoring PlayNext for track 23265474
+  #     Gapless: streaming source active, ignoring PlayNext for track 183283164
+  # The app then shows the new track while the daemon keeps playing the old
+  # one, and transport controls operate on the stale track. A mixed-rate queue
+  # (hi-res next to CD) triggers it regularly.
+  # Cost: a short silence between tracks, audible on continuous albums.
+  audio.gapless_enabled: "false"
   audio.limit_quality_to_device: "true"
 
   # Requesting a format the DAC cannot provide is fatal, not graceful: with
