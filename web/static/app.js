@@ -151,12 +151,28 @@ function renderPlayer(s) {
     $("vol-icon").textContent = v === 0 ? "🔇" : v < 50 ? "🔉" : "🔊";
   }
 
-  // Software volume below 100% silently defeats bit-perfect output — the
-  // single most confusing failure mode of this whole setup, so say it plainly.
-  const soft = s.settings?.["qconnect.volume_mode"] === "software";
+  // Volume mode drives both the control and the message beneath it.
+  //   locked   — qbzd never touches the samples, so the slider would do
+  //              nothing. Disable it rather than offer a control that lies.
+  //   software — attenuation is applied digitally, which silently defeats
+  //              bit-perfect output below 100%. Say so plainly.
+  const mode = s.settings?.["qconnect.volume_mode"];
+  const locked = mode === "locked";
   const v = Math.round((p.volume ?? 1) * 100);
   const w = $("vol-warning");
-  if (soft && v < 100) {
+
+  $("volume").disabled = locked;
+  $("volume").title = locked
+    ? "Volume verrouillé — réglez le niveau sur votre amplificateur"
+    : "Volume logiciel";
+
+  if (locked) {
+    w.className = "hint";
+    w.textContent = "Volume verrouillé : le flux n'est jamais atténué numériquement. " +
+      "Réglez le niveau sur votre amplificateur.";
+    w.hidden = false;
+  } else if (mode === "software" && v < 100) {
+    w.className = "hint warn";
     w.textContent = `Volume logiciel à ${v} % : le signal est atténué numériquement, ` +
       `donc plus bit-perfect. Mettez 100 % et réglez le niveau sur l'ampli.`;
     w.hidden = false;
@@ -276,7 +292,9 @@ async function save(key, value) {
     } else {
       toast("Enregistré");
       state.settings = r.settings;
-      renderAudio(state); renderAccount(state);
+      // renderPlayer too: volume_mode decides whether the slider is usable,
+      // and waiting for the next poll would leave it wrong for 5 seconds.
+      renderAudio(state); renderAccount(state); renderPlayer(state);
     }
   } catch (e) { toast(`Erreur : ${e.message}`); }
 }
