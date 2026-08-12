@@ -7,7 +7,7 @@ const api = async (path, opts = {}) => {
   const r = await fetch(path, {
     headers: { "Content-Type": "application/json" }, ...opts,
   });
-  if (r.status === 401) { showGate(); throw new Error("unauthenticated"); }
+  if (r.status === 401) { showGate("login"); throw new Error("unauthenticated"); }
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.status === 204 ? null : r.json();
 };
@@ -49,8 +49,37 @@ function setFact(el, text, cls) {
 
 /* ---------- gate ---------- */
 
-function showGate() { $("gate").hidden = false; $("app").hidden = true; }
+/* The gate holds two forms: "claim" when no password exists yet, "login"
+   otherwise. Showing the wrong one would either block a fresh install or
+   invite anyone to reset a configured device. */
+function showGate(mode) {
+  $("gate").hidden = false;
+  $("app").hidden = true;
+  const claim = mode === "setup";
+  $("setup-form").hidden = !claim;
+  $("login-form").hidden = claim;
+  (claim ? $("new-password") : $("password")).focus();
+}
 function showApp() { $("gate").hidden = true; $("app").hidden = false; }
+
+$("setup-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const p1 = $("new-password").value, p2 = $("new-password2").value;
+  const err = $("setup-error");
+  err.hidden = true;
+  if (p1 !== p2) { err.textContent = "Les mots de passe ne correspondent pas."; err.hidden = false; return; }
+  if (p1.length < 8) { err.textContent = "8 caractères minimum."; err.hidden = false; return; }
+  try {
+    await api("/api/setup-password", { method: "POST", body: JSON.stringify({ password: p1 }) });
+  } catch (ex) {
+    err.textContent = `Impossible d'enregistrer : ${ex.message}`;
+    err.hidden = false;
+    return;
+  }
+  $("new-password").value = $("new-password2").value = "";
+  await start();
+  toast("Mot de passe défini");
+});
 
 $("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -293,6 +322,102 @@ $("qobuz-logout").addEventListener("click", async () => {
   refresh();
 });
 
+/* ---------- Wi-Fi ---------- */
+
+async function refreshWifi() {
+  const out = $("wifi-result");
+  try {
+    const w = await api("/api/wifi/status");
+    // The helper reports its own failures in-band, so a 200 does not by itself
+    // mean the query worked.
+    if (w.ok === false) throw new Error(w.error || "statut indisponible");
+    $("wifi-ssid").textContent = w.ssid || "—";
+    $("wifi-ip").textContent = w.ip || "—";
+    if (w.signal != null) {
+      const pct = Number(w.signal);
+      $("wifi-signal").textContent = `${pct}%`;
+      $("wifi-signal").className = pct >= 60 ? "ok" : pct >= 40 ? "warn" : "err";
+    } else { setFact($("wifi-signal"), "—", ""); }
+    out.hidden = true;
+  } catch (e) {
+    // Previously swallowed, which left three dashes on screen and no clue why.
+    setFact($("wifi-ssid"), "indisponible", "warn");
+    out.hidden = false;
+    out.className = "hint warn";
+    out.textContent = `Impossible de lire l'état du Wi-Fi : ${e.message}`;
+  }
+}
+
+$("wifi-scan").addEventListener("click", async () => {
+  const btn = $("wifi-scan");
+  btn.disabled = true; btn.textContent = "Recherche…";
+  try {
+    const { networks } = await api("/api/wifi/scan");
+    const sel = $("wifi-ssid-select");
+    const current = $("wifi-ssid").textContent;
+    sel.innerHTML = "";
+    for (const n of networks) {
+      const lock = n.security && n.security !== "--" ? " 🔒" : "";
+      sel.add(new Option(`${n.ssid} — ${n.signal}%${lock}`, n.ssid));
+    }
+    if (networks.some((n) => n.ssid === current)) sel.value = current;
+    toast(`${networks.length} réseau(x) trouvé(s)`);
+  } catch (e) { toast(`Échec du scan : ${e.message}`); }
+  finally { btn.disabled = false; btn.textContent = "Rechercher"; }
+});
+
+$("wifi-connect").addEventListener("click", async () => {
+  const ssid = $("wifi-ssid-select").value;
+  if (!ssid) { toast("Choisissez d'abord un réseau"); return; }
+  const warning = `Se connecter à « ${ssid} » ?\n\n` +
+    `Si la connexion échoue, l'appareil reviendra automatiquement au réseau actuel.\n` +
+    `Si elle réussit et qu'il s'agit d'un autre réseau, cette page ne répondra plus : ` +
+    `il faudra rejoindre « ${ssid} » pour retrouver le streamer.`;
+  if (!confirm(warning)) return;
+
+  const btn = $("wifi-connect"), out = $("wifi-result");
+  btn.disabled = true; btn.textContent = "Connexion…";
+  out.hidden = true;
+  try {
+    const r = await api("/api/wifi", {
+      method: "POST",
+      body: JSON.stringify({ ssid, passphrase: $("wifi-psk").value }),
+    });
+    $("wifi-psk").value = "";
+    out.hidden = false;
+    if (r.ok) {
+      out.className = "hint";
+      out.textContent = `Connecté à « ${r.ssid} ».`;
+      refreshWifi();
+    } else {
+      out.className = "hint warn";
+      out.textContent = `Échec : ${r.error}. Réseau restauré : « ${r.restored || "aucun"} ».`;
+    }
+  } catch (e) {
+    out.hidden = false; out.className = "hint warn";
+    // A timeout here often means the switch worked and took the link with it.
+    out.textContent = `Pas de réponse (${e.message}). Si le réseau a changé, ` +
+      `rejoignez-le et rechargez cette page.`;
+  } finally { btn.disabled = false; btn.textContent = "Se connecter à ce réseau"; }
+});
+
+/* ---------- password ---------- */
+
+$("pw-save").addEventListener("click", async () => {
+  const out = $("pw-result");
+  out.hidden = true;
+  try {
+    await api("/api/password", {
+      method: "POST",
+      body: JSON.stringify({ current: $("pw-current").value, new: $("pw-new").value }),
+    });
+    $("pw-current").value = $("pw-new").value = "";
+    out.hidden = false; out.className = "hint"; out.textContent = "Mot de passe modifié.";
+  } catch (e) {
+    out.hidden = false; out.className = "hint warn"; out.textContent = `Échec : ${e.message}`;
+  }
+});
+
 /* SSE gives instant transport feedback; the poll keeps settings and health
    fresh, since those never appear on the event stream. */
 function connectEvents() {
@@ -311,6 +436,7 @@ let pollTimer = null;
 async function start() {
   showApp();
   await refresh().catch(() => {});
+  refreshWifi();
   connectEvents();
   if (!pollTimer) pollTimer = setInterval(() => refresh().catch(() => {}), 5000);
 }
@@ -318,7 +444,8 @@ async function start() {
 (async () => {
   try {
     const sess = await api("/api/session");
-    if (!sess.authenticated) { showGate(); return; }
+    if (!sess.password_configured) { showGate("setup"); return; }
+    if (!sess.authenticated) { showGate("login"); return; }
     await start();
-  } catch { showGate(); }
+  } catch { showGate("login"); }
 })();

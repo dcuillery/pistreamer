@@ -12,12 +12,28 @@
 
 <!-- Login ------------------------------------------------------------- -->
 <div id="gate" class="gate" hidden>
-  <form id="login-form" class="card gate-card">
+  <form id="login-form" class="card gate-card" hidden>
     <h1 class="gate-title">Pi&nbsp;Streamer</h1>
     <p class="muted">Accès protégé</p>
     <input id="password" type="password" placeholder="Mot de passe" autocomplete="current-password" required>
     <button type="submit" class="btn btn-primary">Se connecter</button>
     <p id="login-error" class="error" hidden></p>
+  </form>
+
+  <!-- First-run claim: only reachable while no password exists. -->
+  <form id="setup-form" class="card gate-card" hidden>
+    <h1 class="gate-title">Bienvenue</h1>
+    <p class="muted">Choisissez un mot de passe pour protéger cet appareil.</p>
+    <div class="banner warn setup-warn">
+      Tant qu'aucun mot de passe n'est défini, n'importe qui sur votre réseau
+      peut configurer ce streamer. Définissez-le maintenant.
+    </div>
+    <input id="new-password" type="password" placeholder="Mot de passe (8 caractères min.)"
+           autocomplete="new-password" minlength="8" required>
+    <input id="new-password2" type="password" placeholder="Confirmer"
+           autocomplete="new-password" minlength="8" required>
+    <button type="submit" class="btn btn-primary">Définir et continuer</button>
+    <p id="setup-error" class="error" hidden></p>
   </form>
 </div>
 
@@ -135,6 +151,55 @@
       <div><dt>Température</dt><dd id="temp">—</dd></div>
       <div><dt>Démon</dt><dd id="uptime">—</dd></div>
     </dl>
+  </section>
+
+  <!-- Wi-Fi ---------------------------------------------------------- -->
+  <section class="card">
+    <h3>Réseau Wi-Fi</h3>
+    <dl class="facts">
+      <div><dt>Réseau actuel</dt><dd id="wifi-ssid">—</dd></div>
+      <div><dt>Signal</dt><dd id="wifi-signal">—</dd></div>
+      <div><dt>Adresse IP</dt><dd id="wifi-ip">—</dd></div>
+    </dl>
+
+    <div class="banner warn">
+      <strong>À manier avec précaution</strong>
+      Vous consultez cette page <em>via</em> le Wi-Fi. En cas d'échec, l'appareil
+      revient automatiquement au réseau précédent. Mais si vous changez de réseau
+      avec succès, le Pi disparaîtra de celui-ci — il faudra rejoindre le nouveau
+      pour le retrouver.
+    </div>
+
+    <label class="field">
+      <span>Réseau</span>
+      <div class="row">
+        <select id="wifi-ssid-select" style="flex:1"><option value="">— rechercher —</option></select>
+        <button id="wifi-scan" type="button" class="btn">Rechercher</button>
+      </div>
+    </label>
+
+    <label class="field">
+      <span>Mot de passe du réseau</span>
+      <input id="wifi-psk" type="password" autocomplete="off" placeholder="Laisser vide si réseau ouvert">
+    </label>
+
+    <button id="wifi-connect" type="button" class="btn btn-primary">Se connecter à ce réseau</button>
+    <p id="wifi-result" class="hint" hidden></p>
+  </section>
+
+  <!-- Security -------------------------------------------------------- -->
+  <section class="card">
+    <h3>Sécurité</h3>
+    <label class="field">
+      <span>Mot de passe actuel</span>
+      <input id="pw-current" type="password" autocomplete="current-password">
+    </label>
+    <label class="field">
+      <span>Nouveau mot de passe (8 caractères min.)</span>
+      <input id="pw-new" type="password" autocomplete="new-password" minlength="8">
+    </label>
+    <button id="pw-save" type="button" class="btn">Changer le mot de passe</button>
+    <p id="pw-result" class="hint" hidden></p>
   </section>
 
   <footer class="foot muted">

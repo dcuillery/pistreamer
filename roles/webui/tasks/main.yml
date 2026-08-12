@@ -112,13 +112,40 @@
       streamer's settings. Set one with:  make webui-password
   when: webui_password is not defined or webui_password | length == 0
 
+# Owned by the service user, not root: the first-run wizard writes this file
+# itself. It was root:pi 0640, which let the app read the password but never
+# create one — the wizard would have failed with a permission error.
 - name: Own the config as the service user
   ansible.builtin.file:
     path: /etc/pistreamer/web.json
-    owner: root
+    owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
-    mode: "0640"
+    mode: "0600"
   failed_when: false
+
+# --- Privileged network helper ---------------------------------------------
+# The service user cannot modify NetworkManager connections. Rather than
+# granting it nmcli wholesale, it may run exactly this script through sudo.
+
+- name: Install the network helper
+  ansible.builtin.copy:
+    src: pistreamer-net
+    dest: /usr/local/sbin/pistreamer-net
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Allow the service user to run only that helper
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/pistreamer-net
+    mode: "0440"
+    owner: root
+    group: root
+    content: |
+      # Managed by pistreamer.
+      # Wi-Fi changes need root; this is the narrowest grant that allows them.
+      {{ ansible_user }} ALL=(root) NOPASSWD: /usr/local/sbin/pistreamer-net
+    validate: "visudo -cf %s"
 
 # --- Service ----------------------------------------------------------------
 

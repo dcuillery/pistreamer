@@ -360,6 +360,7 @@ Two details there are worth calling out, because both fail *silently*:
 
 ```
 pistreamer/
+├── CHANGELOG.md              # what changed, and why it mattered
 ├── Makefile                  # every operation you need, wrapped
 ├── ansible.cfg
 ├── inventory.ini.example     # copy to inventory.ini (gitignored)

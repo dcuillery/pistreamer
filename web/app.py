@@ -29,6 +29,7 @@ from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
 from fastapi.staticfiles import StaticFiles
 
 import qbzd
+import system
 
 STATIC = Path(__file__).parent / "static"
 CONFIG = Path(os.environ.get("PISTREAMER_WEB_CONFIG", "/etc/pistreamer/web.json"))
@@ -99,6 +100,91 @@ async def login(request: Request) -> Response:
     resp.set_cookie(SESSION_COOKIE, _sign(str(int(time.time()))),
                     max_age=SESSION_MAX_AGE, httponly=True, samesite="strict")
     return resp
+
+
+# --------------------------------------------------------------------------
+# First-run password claim
+# --------------------------------------------------------------------------
+# Accepted ONLY while no password exists. That is the whole safety property:
+# the device can be claimed once, by whoever reaches it first on the LAN, and
+# never again without authenticating. Leaving a freshly provisioned streamer
+# unclaimed on an untrusted network is therefore the risk to avoid — the UI
+# says so on the setup screen.
+
+@app.post("/api/setup-password")
+async def setup_password(request: Request) -> Response:
+    if CFG.get("password_hash"):
+        raise HTTPException(status_code=409,
+                            detail="a password is already configured")
+    body = await request.json()
+    password = str(body.get("password", ""))
+    if len(password) < 8:
+        raise HTTPException(status_code=400,
+                            detail="password must be at least 8 characters")
+    try:
+        CFG.update(system.write_password(CONFIG, password))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"cannot write config: {exc}")
+
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(SESSION_COOKIE, _sign(str(int(time.time()))),
+                    max_age=SESSION_MAX_AGE, httponly=True, samesite="strict")
+    return resp
+
+
+@app.post("/api/password", dependencies=[Depends(auth_required)])
+async def change_password(request: Request) -> dict:
+    body = await request.json()
+    current = str(body.get("current", ""))
+    new = str(body.get("new", ""))
+    if CFG.get("password_hash"):
+        if not hmac.compare_digest(system.hash_password(current, CFG["salt"]),
+                                   CFG["password_hash"]):
+            raise HTTPException(status_code=401, detail="wrong current password")
+    if len(new) < 8:
+        raise HTTPException(status_code=400,
+                            detail="password must be at least 8 characters")
+    try:
+        CFG.update(system.write_password(CONFIG, new))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"cannot write config: {exc}")
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Wi-Fi
+# --------------------------------------------------------------------------
+
+@app.get("/api/wifi/status", dependencies=[Depends(auth_required)])
+async def wifi_status() -> dict:
+    try:
+        return await system.wifi_status()
+    except system.SystemError_ as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+@app.get("/api/wifi/scan", dependencies=[Depends(auth_required)])
+async def wifi_scan() -> dict:
+    try:
+        return {"ok": True, "networks": await system.wifi_scan()}
+    except system.SystemError_ as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post("/api/wifi", dependencies=[Depends(auth_required)])
+async def wifi_connect(request: Request) -> dict:
+    """Switch networks. The helper restores the previous profile if the new one
+    fails, so a wrong passphrase does not strand the device — but a *successful*
+    move to a different network still changes the address you reach it on."""
+    body = await request.json()
+    ssid = str(body.get("ssid", "")).strip()
+    passphrase = str(body.get("passphrase", ""))
+    if not ssid:
+        raise HTTPException(status_code=400, detail="SSID is required")
+    try:
+        return await system.wifi_connect(ssid, passphrase)
+    except system.SystemError_ as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 @app.post("/api/logout")

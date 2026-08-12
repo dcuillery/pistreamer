@@ -15,13 +15,24 @@ ExecStart={{ webui_dir }}/venv/bin/uvicorn app:app --host {{ webui_bind }} --por
 Restart=on-failure
 RestartSec=5
 
-# Modest hardening. The app runs a subprocess (the qbzd CLI), so it cannot be
-# fully locked down, but it has no business writing outside its own directory.
-NoNewPrivileges=true
+# Modest hardening. The app runs subprocesses (the qbzd CLI, and the network
+# helper through sudo), so it cannot be fully locked down — but it has no
+# business writing outside its own directory.
+#
+# NoNewPrivileges is deliberately NOT set. It blocks every setuid escalation,
+# which is exactly how sudo acquires root, so enabling it breaks Wi-Fi
+# configuration with:
+#   "sudo: The 'no new privileges' flag is set, which prevents sudo from
+#    running as root."
+# It also bought little here: the service user already has NOPASSWD: ALL, so
+# the flag constrained this one helper and nothing else.
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths={{ webui_dir }} /home/{{ ansible_user }}/.config /home/{{ ansible_user }}/.local
+# /etc/pistreamer must be writable: the first-run wizard creates the password
+# file itself. ProtectSystem=full makes /etc read-only, and ReadWritePaths is
+# what punches through it — without this entry the wizard cannot save.
+ReadWritePaths={{ webui_dir }} /etc/pistreamer /home/{{ ansible_user }}/.config /home/{{ ansible_user }}/.local
 
 [Install]
 WantedBy=multi-user.target
