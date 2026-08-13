@@ -98,7 +98,7 @@ def main() -> None:
     url = repo_url()
     # Rewrite the link definitions at the foot of the file.
     text = re.sub(r"^\[Unreleased\]:.*$",
-                  f"[Unreleased]: {url}/compare/{version}...HEAD", text, flags=re.M)
+                  f"[Unreleased]: {url}/compare/{version}...develop", text, flags=re.M)
     new_link = (f"[{version}]: {url}/compare/{previous}...{version}" if previous
                 else f"[{version}]: {url}/releases/tag/{version}")
     text = re.sub(r"^(\[Unreleased\]:.*)$", r"\1\n" + new_link, text, count=1, flags=re.M)
@@ -113,7 +113,7 @@ def main() -> None:
     print(f"✓ committed and tagged {version}")
     print()
     print("Review it, then publish with:")
-    print(f"    git push origin main {version}")
+    print(f"    git push origin develop {version}")
 
 
 if __name__ == "__main__":
