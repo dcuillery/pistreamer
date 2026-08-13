@@ -1,4 +1,4 @@
-pistreamer — a headless Qobuz Connect endpoint for Raspberry Pi
+qbz-pistreamer — a headless Qobuz Connect endpoint for Raspberry Pi
 
 Author
     Damien CUILLERY, MS C.S.

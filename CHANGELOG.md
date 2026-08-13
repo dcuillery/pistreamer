@@ -322,6 +322,6 @@ required.
 Verified on: Raspberry Pi 3 Model B Rev 1.2 · Raspberry Pi OS Lite 64-bit (Debian 13,
 glibc 2.41) · Musical Fidelity V90-DAC (24-bit/96 kHz ceiling, UAC1, asynchronous).
 
-[Unreleased]: https://github.com/dcuillery/pistreamer/compare/0.4.0...HEAD
-[0.4.0]: https://github.com/dcuillery/pistreamer/compare/0.3.0...0.4.0
-[0.1.0]: https://github.com/dcuillery/pistreamer/releases/tag/0.1.0
+[Unreleased]: https://github.com/dcuillery/qbz-pistreamer/compare/0.4.0...HEAD
+[0.4.0]: https://github.com/dcuillery/qbz-pistreamer/compare/0.3.0...0.4.0
+[0.1.0]: https://github.com/dcuillery/qbz-pistreamer/releases/tag/0.1.0

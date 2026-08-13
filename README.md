@@ -1,4 +1,4 @@
-# pistreamer
+# qbz-pistreamer
 
 Turn a Raspberry Pi into a headless, bit-perfect **Qobuz Connect** endpoint feeding a USB hi-fi DAC.
 
@@ -414,7 +414,7 @@ Two details there are worth calling out, because both fail *silently*:
 ## Layout
 
 ```
-pistreamer/
+qbz-pistreamer/
 ├── CHANGELOG.md              # what changed, and why it mattered
 ├── Makefile                  # every operation you need, wrapped
 ├── ansible.cfg
