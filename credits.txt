@@ -7,6 +7,15 @@ Author
 Copyright (c) 2026 Damien Cuillery
 Licensed under the MIT License — see LICENSE for the full text.
 
+Postcardware
+    Free to use under the MIT License above. If this ends up playing music in
+    your home, I would love a postcard from your hometown, or a CD or LP you
+    think this streamer deserves to play — mention that you run qbz-pistreamer.
+    My address is on my contact page: https://github.com/dcuillery
+
+    This is a request, not a licence condition. Nothing about your right to
+    use, fork or sell this work depends on it.
+
 Third-party components
     This project bundles no third-party code. Components are fetched at
     provision time from their own official sources.

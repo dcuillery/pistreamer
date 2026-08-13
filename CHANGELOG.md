@@ -12,8 +12,14 @@ failure you cannot see is the expensive kind.
 ---
 
 ## [Unreleased]
+### Added
 
-_Nothing yet._
+- **Postcardware.** The project is now postcardware, in the sense Spatie use the
+  word: still MIT, still free to use and fork, but users are asked to send the
+  author a postcard from their hometown — or a CD or LP worth playing on it.
+  Documented in the README's licence section and in `credits.txt`. Deliberately
+  *not* written into `LICENSE`: a postcard clause with legal force would make
+  the project non-free and unpackageable, which is not the point of asking.
 
 ---
 

@@ -464,6 +464,21 @@ document — the last moment such a mistake is still cheap to fix.
 
 Licensed under the **MIT Licence** — see [LICENSE](LICENSE). © 2026 Damien Cuillery.
 
+## Postcardware
+
+This project is **postcardware**: free to use, fork and modify under the MIT licence
+above, no strings attached — but if it ends up playing music in your home, I would love
+a **postcard from your hometown**, or a **CD or LP** you think this streamer deserves to
+play. Mention that you are running `qbz-pistreamer`.
+
+You will find my address on my
+[contact page](https://github.com/dcuillery). Records and cards received get
+listed here, with the sender's town.
+
+This is a request, not a licence condition — the MIT terms in [LICENSE](LICENSE) are the
+whole legal story, and nothing about your right to use this project depends on it. It is
+simply the only payment ever asked for, and good listening is the best kind.
+
 ## What this repository contains, and what it does not
 
 **This repository bundles no third-party code whatsoever.** It is provisioning only:
