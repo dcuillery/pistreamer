@@ -246,23 +246,29 @@ def list_devices() -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------
 
 # Bit meanings from the Raspberry Pi firmware's get_throttled word.
-_THROTTLE_BITS = {
-    0: "under-voltage right now",
-    1: "ARM frequency capped right now",
-    2: "throttled right now",
-    3: "soft temperature limit right now",
-    16: "under-voltage has occurred",
-    17: "ARM frequency capping has occurred",
-    18: "throttling has occurred",
-    19: "soft temperature limit has occurred",
-}
+#
+# The distinction that matters: bits 0-3 describe RIGHT NOW, bits 16-19 are
+# sticky — they latch the moment a condition occurs and stay set until the next
+# reboot. Reporting the sticky bits as a current fault means a single blip
+# during boot leaves an alarm on screen for days, which is exactly what this
+# code used to do.
+#
+# Stable codes rather than prose, so the interface can translate them.
+_BITS_NOW = {0: "undervoltage", 1: "freq_capped", 2: "throttled", 3: "temp_limit"}
+_BITS_PAST = {16: "undervoltage", 17: "freq_capped", 18: "throttled", 19: "temp_limit"}
 
 
 async def health() -> dict[str, Any]:
-    """Power and thermal state. Under-voltage on a Pi never announces itself
-    in the UI otherwise, and it is the most common cause of odd behaviour."""
-    info: dict[str, Any] = {"throttled_raw": None, "flags": [], "healthy": None,
-                            "temperature_c": None}
+    """Power and thermal state.
+
+    `active`     — conditions happening now; these deserve an alarm.
+    `since_boot` — conditions that occurred at some point since power-on; these
+                   are history, and clear only on reboot.
+    `healthy`    — no ACTIVE condition. Past events do not make a device
+                   unhealthy, they make it a device that had an event.
+    """
+    info: dict[str, Any] = {"throttled_raw": None, "active": [], "since_boot": [],
+                            "healthy": None, "temperature_c": None}
     vcgencmd = shutil.which("vcgencmd") or "/usr/bin/vcgencmd"
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -272,8 +278,9 @@ async def health() -> dict[str, Any]:
         if m := re.search(r"0x([0-9a-fA-F]+)", out.decode()):
             word = int(m.group(1), 16)
             info["throttled_raw"] = f"0x{word:X}"
-            info["flags"] = [t for bit, t in _THROTTLE_BITS.items() if word & (1 << bit)]
-            info["healthy"] = word == 0
+            info["active"] = [c for bit, c in _BITS_NOW.items() if word & (1 << bit)]
+            info["since_boot"] = [c for bit, c in _BITS_PAST.items() if word & (1 << bit)]
+            info["healthy"] = not info["active"]
     except (OSError, asyncio.TimeoutError):
         pass
 

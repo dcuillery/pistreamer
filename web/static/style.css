@@ -412,6 +412,8 @@ input:focus-visible, select:focus-visible, .btn:focus-visible, .switch input:foc
   display: block; margin-bottom: .2rem; font-weight: 500;
   font-size: .74rem; text-transform: uppercase; letter-spacing: .1em;
 }
+/* A bare .banner is a neutral note — history, not an alarm. */
+.banner strong { color: var(--muted); }
 .banner.warn { border-left-color: var(--warn); }
 .banner.warn strong { color: var(--warn); }
 .banner.err  { border-left-color: var(--err); }

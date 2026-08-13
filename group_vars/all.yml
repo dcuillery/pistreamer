@@ -63,16 +63,19 @@ qbzd_settings:
   audio.exclusive_mode: "true"        # nothing else may open the card
   audio.reserve_dac_while_running: "true"
 
-  # Gapless OFF, deliberately. Its prefetch path swallows explicit track
-  # changes sent from the Qobuz app, logging:
+  # Gapless ON — a deliberate trade, made with the drawback in view.
+  #
+  # Its prefetch path can swallow an explicit track change sent from the Qobuz
+  # app, logging:
   #     Gapless: format mismatch (current 96000Hz/2ch vs next 44100Hz/2ch),
   #              ignoring PlayNext for track 23265474
   #     Gapless: streaming source active, ignoring PlayNext for track 183283164
   # The app then shows the new track while the daemon keeps playing the old
-  # one, and transport controls operate on the stale track. A mixed-rate queue
-  # (hi-res next to CD) triggers it regularly.
-  # Cost: a short silence between tracks, audible on continuous albums.
-  audio.gapless_enabled: "false"
+  # one. Two mitigations make this liveable: selecting from an ALBUM rather
+  # than from search results avoids the failing code path entirely, and any
+  # transport command forces a proper reload.
+  # Set to "false" if seamless transitions matter less than reliable skipping.
+  audio.gapless_enabled: "true"
   audio.limit_quality_to_device: "true"
 
   # Requesting a format the DAC cannot provide is fatal, not graceful: with
@@ -84,16 +87,21 @@ qbzd_settings:
   audio.quality_fallback_behavior: always_fallback   # or always_skip
 
   # MUST match what your DAC can actually accept — check with `make dacs`.
-  #   cd          16-bit / 44.1 kHz   e.g. TI PCM2706 (16-bit, 48 kHz max)
+  #   cd          16-bit / 44.1 kHz   e.g. TI PCM2706 (16-bit, 48 kHz ceiling)
   #   hires       24-bit / 96 kHz     e.g. Musical Fidelity V90-DAC
   #   hires_plus  24-bit / up to 192 kHz
   #
-  # Set to `cd` for the PCM2706 currently connected: it reports S16_LE only,
-  # so 24-bit cannot be negotiated at all. Fallback alone is not enough —
-  # `hires_plus` still failed on this device. Raise it when you attach a DAC
-  # that reports 24-bit support.
-  playback.quality: cd
-  qconnect.device_name: "Pi Streamer"
+  # Set for the XMOS USB Audio 2.0 currently attached, which reports S32_LE at
+  # 24-bit and rates to 192 kHz. Lower this to `cd` if you go back to a 16-bit
+  # converter: requesting a format the hardware cannot provide is fatal in
+  # exclusive mode, not graceful — the daemon emits an endless stream of
+  # `alsa::poll() returned POLLERR` and the music stops.
+  playback.quality: hires_plus
+  # Shown in the Qobuz app's Connect menu. Note that Qobuz remembers device
+  # names cloud-side: renaming leaves the previous entry listed until you
+  # delete it from your Qobuz account. A stale "QBZ (streamer)" — the daemon's
+  # default, being "QBZ" plus the hostname — is one such leftover.
+  qconnect.device_name: "Qbz Pi Streamer"
   qconnect.startup_mode: "on"
   qconnect.volume_mode: "software" # ("locked" or "software")
 
@@ -112,6 +120,30 @@ qbzd_bind_localhost: true
 # exist in the CLI.
 webui_enabled: true
 webui_dir: /opt/pistreamer-web
+# Shape of the web UI volume slider.
+#
+# min_db is the bottom of the range; the top is always 0 dB. The DAC's own
+# scale (0 to -127 dB over 127 steps) is unusable directly — it would put
+# -63 dB at half travel.
+#
+# curve warps the window so the top gets the resolution:
+#     dB = min_db * (1 - slider)^curve
+#   1.0  linear in dB
+#   1.5  -30 dB..0 dB spans ~71% of the travel   (default)
+#   2.0  ~77%, but the last 10% of travel then covers only 0.5 dB
+#   taper  "power"     dB = min_db·(1-slider)^curve   (curve 1.0 = linear in dB)
+#          "amplitude" dB = 20·log10(slider)          (analogue potentiometer)
+#
+# Set to a straight line from 0 dB down to -12 dB, which is what these
+# reference points describe: 50% = -6 dB, 25% = -9 dB — 0.12 dB per point of
+# travel throughout. A deliberately narrow trim range: the amplifier does the
+# coarse volume, this only fine-tunes around it.
+# "auto" lets the slider reach the converter's own minimum (-127 dB here),
+# so 0% is silence rather than merely quiet. A number caps the range instead.
+webui_volume_min_db: auto
+webui_volume_curve: 1.0
+webui_volume_taper: amplitude
+
 webui_bind: "0.0.0.0"
 webui_port: 8080
 

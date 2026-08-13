@@ -200,6 +200,61 @@ make web-logs          # follow its log
 
 It lands on `http://streamer.local:8080/`.
 
+### Volume, done properly
+
+The slider drives the **DAC's own hardware attenuator**, not a software gain. The
+level really changes, and the stream stays bit-perfect — attenuation happens
+inside the converter, so the samples sent over USB are never altered. It is the
+same mechanism as a TEAC's "variable line output".
+
+This exists because `qbzd` cannot do it on most DACs: its ALSA engine only
+recognises controls named `Master`, `PCM`, `Speaker`, `Headphone` or `Digital`,
+and it applies no software attenuation at all in `hw` + exclusive mode. The
+slider was therefore inert whatever the setting.
+
+Nothing is hardcoded to one converter. The control is **discovered** — the first
+element exposing `pvolume`, preferring a conventional name when a card has
+several — and its range is read from ALSA (`min`/`max` and `dBminmax`) rather
+than assumed. **A DAC exposing no volume control disables the slider
+automatically**, with a message that distinguishes *cannot* from *must not*.
+
+Two tapers, in `group_vars/all.yml`:
+
+```yaml
+webui_volume_taper: amplitude   # dB = 20·log10(slider) — an analogue pot:
+                                # 50% = -6 dB, 0% = silence
+webui_volume_min_db: auto       # "auto" reaches the DAC's own floor (-127 dB
+                                # here); a number caps it, e.g. -12 for a trim
+webui_volume_curve: 1.0         # only used by taper "power"
+```
+
+The `Volume control` setting chooses between driving the DAC and **locked** —
+fixed output at 0 dB, leaving the volume to your amplifier. Switching to locked
+restores full output first: "fixed" should mean 0 dB, not "frozen wherever the
+slider happened to be".
+
+> One caveat outside our reach: the **Qobuz app's own volume slider still does
+> nothing**. `qbzd` relays the value without applying it, and `locked` does not
+> propagate to the app either. See *Known issues* in [CHANGELOG.md](CHANGELOG.md).
+
+### Languages
+
+The interface is English and French, chosen from the browser's preferences on
+first visit and overridable from a switcher available **before** sign-in as well
+as after. The choice is remembered.
+
+Translations are plain JSON, editable in your IDE and committed:
+
+```
+web/static/i18n/en.json
+web/static/i18n/fr.json
+```
+
+No build step and no extraction tooling — open the file, change the string. A
+missing key renders as the key itself, so a gap is immediately visible rather
+than silently blanking part of the page. Number formatting follows the locale,
+so 44.1 kHz becomes 44,1 kHz.
+
 ### Why it must run on the Pi
 
 Two constraints, both found by probing the daemon rather than assuming:
@@ -369,11 +424,37 @@ pistreamer/
 ├── roles/
 │   ├── base/                 # OS hygiene, packages, mDNS, SD-card care
 │   ├── audio/                # Pi 3B USB audio tuning, RT limits, governor
-│   └── qbzd/                 # Qobuz Connect daemon install + service
+│   ├── qbzd/                 # Qobuz Connect daemon install + service
+│   └── webui/                # web UI deployment, network helper, sudoers
+├── web/
+│   ├── app.py                # HTTP API: session, state, SSE relay, settings
+│   ├── qbzd.py               # daemon client — HTTP for state, CLI for config
+│   ├── system.py             # Wi-Fi, password store, DAC hardware volume
+│   └── static/
+│       ├── index.html
+│       ├── app.js
+│       ├── style.css         # ZERON theme
+│       ├── i18n.js
+│       └── i18n/{en,fr}.json # translations — edit these
+├── scripts/release.py        # roll [Unreleased] into a version, commit, tag
+├── .githooks/pre-push        # refuse a version tag with no changelog entry
 └── docs/
     ├── first-boot.md         # flashing and initial access in detail
     └── troubleshooting.md    # dropouts, DAC not appearing, login problems
 ```
+
+## Releasing
+
+```bash
+make hooks                     # once: enable the repo's git hooks
+make release VERSION=0.2.0     # roll the changelog, commit, tag
+git push origin main 0.2.0
+```
+
+`make release` renames `[Unreleased]` to the version with today's date, opens a
+fresh section, regenerates the comparison links, and refuses to run on a dirty
+tree. The `pre-push` hook then blocks any semver tag that the changelog does not
+document — the last moment such a mistake is still cheap to fix.
 
 ---
 

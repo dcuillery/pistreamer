@@ -225,11 +225,18 @@
           | list | first | default('')) | trim }}
   when: qbzd_audio_device == 'auto'
 
+# "hw:CARD=<name>" and NOT "hw:CARD=<name>,DEV=0".
+#
+# Both open the same PCM — DEV defaults to 0 — but qbzd reuses this string to
+# open the ALSA *mixer*, and a mixer handle cannot parse the DEV parameter:
+#     ALSA lib conf.c: Unknown parameter DEV
+#     [ALSA Direct Engine] Hardware volume failed: Failed to open mixer
+# The short form lets hardware volume control work on DACs that expose one.
 - name: Resolve the output device
   ansible.builtin.set_fact:
     qbzd_device_resolved: >-
       {{ qbzd_audio_device if qbzd_audio_device != 'auto'
-         else ('hw:CARD=' ~ qbzd_detected_card ~ ',DEV=0')
+         else ('hw:CARD=' ~ qbzd_detected_card)
               if (qbzd_detected_card | default('') | length > 0)
          else (qbzd_current['audio.device'] | default('')) }}
 

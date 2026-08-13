@@ -15,6 +15,40 @@ failure you cannot see is the expensive kind.
 
 ### Added
 
+- **A volume control that actually works.** The slider drives the DAC's own
+  hardware attenuator, so the level really changes **and the stream stays
+  bit-perfect** — attenuation happens inside the converter, never on the samples.
+  It is the same mechanism as a TEAC's "variable line output".
+
+  Fully generic: the control is discovered (first element exposing `pvolume`,
+  preferring a conventional name when several exist) and its range is read from
+  ALSA rather than assumed. **A DAC with no volume control disables the slider
+  automatically**, with a message distinguishing "cannot" from "must not".
+
+  Two tapers, configurable in `group_vars/all.yml`:
+  `amplitude` (default) follows `dB = 20·log10(slider)` — an analogue
+  potentiometer, so half travel is −6 dB and zero is silence; `power` gives a
+  straight line in dB for a deliberately narrow trim range.
+
+- **`Volume control` is a real choice again**: *control the DAC's volume* versus
+  *locked — fixed output at 0 dB*, the classic fixed line output. Switching to
+  locked restores full output first, because "fixed" should mean 0 dB rather
+  than "frozen wherever the slider happened to be".
+
+- **Bilingual interface, English and French**, detected from the browser and
+  overridable from a switcher present both before and after sign-in. Translations
+  live in editable, committed JSON under `web/static/i18n/` — no build step, no
+  extraction tooling. A missing key renders as the key itself, so a gap is
+  visible instead of silently blanking the interface. Number formatting follows
+  the locale (44.1 kHz / 44,1 kHz).
+
+- **ZERON visual identity** applied from the brand book: Ivory / Charcoal /
+  Walnut / Brass / Midnight, hairlines instead of shadows, flat geometric SVG
+  icons in place of emoji, and a light/dark palette. Brass is reserved for
+  signal and state — progress, the connected dot, focus — never as a fill,
+  matching the reference where the primary button is black and brass appears
+  only as a shadow line.
+
 - **Web UI** — a FastAPI application served from the Pi at `http://streamer.local:8080/`
   (`cee400a`). Now-playing with cover art, transport controls and volume, live over
   SSE; DAC selection; playback quality; Qobuz Connect device name; OAuth login; and a
@@ -46,6 +80,26 @@ failure you cannot see is the expensive kind.
   Both were required for the wizard to write a password at all.
 - Settings are written atomically (`os.replace`), so an interrupted write cannot
   leave a truncated config and lock you out.
+- **Settings are seeded once, then left alone.** Each key in `group_vars` is
+  applied on first run and recorded in a ledger; afterwards the web UI is
+  authoritative. Without this, changing a setting in the UI and later running
+  `make provision` for an unrelated reason would silently revert it.
+  `qbzd settings show` cannot help here — it always returns a value, so "the
+  user chose false" and "false is the default" are indistinguishable. `make
+  settings-force` re-imposes everything. `audio.device` is exempt and always
+  enforced: it is derived from the hardware present, so seeding it would freeze
+  the first DAC ever detected.
+- **Section headings now read as headings.** Hierarchy is carried by four axes
+  at once — size, case, weight and colour. Previously `h3` was 0.68rem while
+  field labels were 0.74rem: the hierarchy was literally inverted, which is
+  exactly why it did not read.
+- Selects are drawn in the interface's own typeface with a custom chevron
+  instead of inheriting the platform's. (The open dropdown list is drawn by the
+  OS and cannot be styled — only the closed control is ours.)
+- `playback.quality` follows the DAC in use, and `audio.device` is stored as
+  `hw:CARD=<name>` without the `,DEV=0` suffix.
+- Device name is `Qbz Pi Streamer`; gapless is on, with its drawback documented
+  next to the setting.
 - **Playback quality now degrades instead of failing.** `audio.allow_quality_fallback`
   is `true` and `audio.quality_fallback_behavior` is `always_fallback`, so a hi-res
   stream is downsampled to whatever the DAC accepts rather than refused.
@@ -80,6 +134,36 @@ failure you cannot see is the expensive kind.
 - **The Wi-Fi panel swallowed its own errors**, showing three dashes and no
   explanation while the server was returning a perfectly clear message. Failures are
   now surfaced in the panel.
+- **A perfectly healthy power supply was reported as inadequate.** The firmware's
+  `get_throttled` word carries two families of bits: 0-3 describe *right now*,
+  16-19 are **sticky** and latch until reboot. Testing `word == 0` meant a single
+  blip during boot left a red alarm on screen for days. Every flag was also
+  blamed on power, when a frequency cap without under-voltage is not an
+  electrical fault and a thermal limit is a cooling problem. The API now reports
+  `active` and `since_boot` separately, `healthy` depends only on active
+  conditions, and history moved to a tooltip.
+- **The DAC's second volume stage was left at −60 dB, and the output went
+  silent.** A Rega DAC-R exposes `…Playback Volume` at index 0 *and* index 1,
+  in series. `amixer sset '<name>'` writes only index 0, so restoring "the"
+  volume restored half of it — while `sget` cheerfully reported
+  `127 [100%] [0.00dB]`. Every stage is now enumerated and driven together, and
+  the reported level is the **most attenuating** stage, so a drift is visible
+  instead of being hidden behind a confident 0 dB.
+- **`amixer` dB targets are unreliable** on this control — both `-30dB` and
+  `-12dB` snapped to `-4dB`. Levels are set as raw values with the conversion
+  done here, from the range ALSA publishes.
+- The mixer scale was never detected, because `scontrols` reports the short name
+  (`XMOS Audio 2.0 Output`) while `contents` spells it out
+  (`… Playback Volume`); matching on the closing quote never hit, and the code
+  silently fell back to the raw percentage.
+- **The daemon's `last_errors` is sticky too** — kept until restart, with no
+  timestamp. It was rendered as a warning, so an incident resolved hours earlier
+  still looked live. Now a neutral note that says so.
+- Redeploying took 90 seconds: the SSE endpoint holds a connection open, so
+  uvicorn never finished a graceful shutdown and systemd waited its full default
+  before `SIGKILL`. `TimeoutStopSec=10` — the service is ready in about two.
+- `system.py` used `re` without importing it, which broke hardware volume
+  detection on first call.
 - **Playback stopped, with the daemon emitting an unbounded stream of errors**
   (30 147 lines observed):
 
@@ -135,9 +219,36 @@ failure you cannot see is the expensive kind.
   a per-password salt. Plaintext never reaches this repository.
 - Only an allow-list of `qbzd` settings keys may be written through the API, so a
   crafted request cannot reach arbitrary daemon configuration.
+- `NoNewPrivileges=true` was removed from the service unit, deliberately and with
+  the reason recorded there. It blocks every setuid escalation — which is how
+  `sudo` acquires root — so the same deployment granted the service sudo access
+  and removed its ability to use it, breaking Wi-Fi configuration with
+  *"sudo: The 'no new privileges' flag is set"*.
 - **Known limitation:** the `pi` user has `NOPASSWD: ALL`, so the narrow sudoers grant
   does not meaningfully constrain the service — a compromise of the web UI yields
   root. Tightening this requires removing `pi`'s blanket sudo access.
+
+### Known issues (upstream)
+
+Four defects in `qbzd` were identified with reproductions and are not fixable
+from this repository. The Qobuz Connect protocol is reverse-engineered, so gaps
+of this kind are expected.
+
+1. **A track picked from search results never loads.** The queue is replaced and
+   the metadata switches, but the player is never told to start the new source —
+   no `starting streaming playback` appears, and the previous track keeps
+   playing under the new title. Selecting from an **album** works; any transport
+   command forces a proper reload.
+2. **The ALSA mixer is opened with the PCM device string**, `,DEV=0` included,
+   which a mixer handle cannot parse (`Unknown parameter DEV`). Worked around
+   here by storing `hw:CARD=<name>`.
+3. **Hardware volume only recognises five control names** — `Master`, `PCM`,
+   `Speaker`, `Headphone`, `Digital` (visible in the binary). A DAC calling its
+   control anything else, such as `XMOS Audio 2.0 Output`, can never be driven.
+4. **Software volume is applied nowhere** in `hw` + exclusive mode, in any
+   configuration tried, including `dsd_mode: convert`. The value is stored and
+   relayed to the Qobuz app, which therefore shows a slider that does nothing.
+   `qconnect.volume_mode: locked` does not propagate to the app either.
 
 ---
 

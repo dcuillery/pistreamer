@@ -17,6 +17,9 @@ const api = async (path, opts = {}) => {
 
 let state = null;
 let dragging = false;
+// Last known DAC hardware mixer state. When a control exists, the slider
+// drives IT rather than qbzd's volume, which is inert in bit-perfect mode.
+let hwVol = null;
 
 /* ---------- helpers ---------- */
 
@@ -30,6 +33,10 @@ const fmtTime = (s) => {
 const num1 = (v) => new Intl.NumberFormat(I18N.lang, {
   minimumFractionDigits: 1, maximumFractionDigits: 1,
 }).format(v);
+
+// The backend reports stable codes ("undervoltage", "freq_capped", …) rather
+// than prose, precisely so they can be translated here.
+const flagLabel = (code) => t(`flag.${code}`);
 
 const qualityLabel = (v) => t(`quality.${v}`) === `quality.${v}` ? v : t(`quality.${v}`);
 const volumeLabel  = (v) => t(`volume_mode.${v}`) === `volume_mode.${v}` ? v : t(`volume_mode.${v}`);
@@ -143,9 +150,18 @@ function renderBanners(s) {
     box.appendChild(d);
   };
 
-  if (!s.health?.healthy && s.health?.flags?.length) {
+  // Only ACTIVE conditions raise an alarm. The firmware's "has occurred" bits
+  // latch until reboot, so treating them as current faults left a power alert
+  // on screen indefinitely after one blip at boot — on a perfectly good supply.
+  const active = s.health?.active || [];
+  const power = active.filter((c) => c === "undervoltage" || c === "throttled");
+  const thermal = active.filter((c) => c === "temp_limit");
+  if (power.length) {
     add("err", t("banner.power_title"),
-        t("banner.power_body", { flags: s.health.flags.join(", ") }));
+        t("banner.power_body", { flags: power.map(flagLabel).join(", ") }));
+  }
+  if (thermal.length) {
+    add("warn", t("banner.thermal_title"), t("banner.thermal_body"));
   }
   if (!s.daemon) {
     add("err", t("banner.daemon_title"), t("banner.daemon_body"));
@@ -153,8 +169,16 @@ function renderBanners(s) {
   if (!s.password_configured) {
     add("warn", t("banner.nopw_title"), t("banner.nopw_body"));
   }
+  // `last_errors` is sticky: qbzd keeps the last failure indefinitely, with no
+  // timestamp, so it cannot be aged out. Rendering it as a warning meant an
+  // incident resolved hours ago still looked like a live fault — the same
+  // mistake as treating the firmware's "has occurred" bits as current.
+  // Shown as a neutral note instead, worded so it reads as history.
   const streamErr = s.daemon?.last_errors?.stream;
-  if (streamErr) add("warn", t("banner.stream_error_title"), streamErr);
+  if (streamErr) {
+    add("", t("banner.stream_error_title"),
+        `${streamErr} — ${t("banner.stream_error_note")}`);
+  }
 }
 
 function renderPlayer(s) {
@@ -168,36 +192,7 @@ function renderPlayer(s) {
   // Class switches, not textContent: the glyphs are SVG living in the markup.
   $("toggle").classList.toggle("playing", p.state === "playing");
 
-  if (!dragging && p.volume != null) {
-    const v = Math.round(p.volume * 100);
-    $("volume").value = v;
-    $("vol-val").textContent = `${v}%`;
-    $("vol-icon").className =
-      `vol-icon ${v === 0 ? "is-mute" : v < 50 ? "is-low" : "is-high"}`;
-  }
-
-  // Volume mode drives both the control and the message beneath it.
-  //   locked   — qbzd never touches the samples, so the slider would do
-  //              nothing. Disable it rather than offer a control that lies.
-  //   software — attenuation is applied digitally, which silently defeats
-  //              bit-perfect output below 100%. Say so plainly.
-  const mode = s.settings?.["qconnect.volume_mode"];
-  const locked = mode === "locked";
-  const v = Math.round((p.volume ?? 1) * 100);
-  const w = $("vol-warning");
-
-  $("volume").disabled = locked;
-  $("volume").title = t(locked ? "player.volume_locked_title" : "player.volume_software_title");
-
-  if (locked) {
-    w.className = "hint";
-    w.textContent = t("player.volume_locked_hint");
-    w.hidden = false;
-  } else if (mode === "software" && v < 100) {
-    w.className = "hint warn";
-    w.textContent = t("player.volume_software_warn", { pct: v });
-    w.hidden = false;
-  } else { w.hidden = true; }
+  renderVolume(s);
 
   if (p.title) {
     const img = $("art");
@@ -205,6 +200,81 @@ function renderPlayer(s) {
     img.onload = () => { img.hidden = false; $("art-empty").hidden = true; };
     img.onerror = () => { img.hidden = true; $("art-empty").hidden = false; };
   }
+}
+
+/* Volume has two possible sources, and only one of them actually works here.
+ *
+ *   DAC hardware mixer  — real attenuation inside the converter, bit-perfect
+ *                         preserved. Used whenever the DAC exposes a control.
+ *   qbzd's own volume   — relayed to the Qobuz app, but applied nowhere in
+ *                         hw+exclusive mode. Kept only as a fallback for DACs
+ *                         with no hardware control.
+ */
+function renderVolume(s) {
+  const el = $("volume"), w = $("vol-warning");
+  const locked = s.settings?.["qconnect.volume_mode"] === "locked";
+  const hw = hwVol?.available && !locked ? hwVol : null;
+
+  // Locked: the DAC sits at full output and the amplifier does the volume.
+  // The slider is disabled because it is meant to do nothing, not because it
+  // is broken — a different message from "this DAC has no control".
+  if (locked) {
+    if (!dragging) {
+      el.value = 100;
+      $("vol-val").textContent = hwVol?.db != null ? `${Math.round(hwVol.db)} dB` : "0 dB";
+      $("vol-icon").className = "vol-icon is-high";
+    }
+    el.disabled = true;
+    el.title = t("player.volume_locked_title");
+    w.className = "hint";
+    w.textContent = t("player.volume_locked_hint");
+    w.hidden = false;
+    return;
+  }
+
+  if (hw) {
+    if (!dragging) {
+      // `slider` is the position on the useful dB window, not the raw ALSA
+      // percentage — the raw scale puts -63 dB at half travel.
+      const pos = hw.slider ?? 100;
+      el.value = pos;
+      // dB is the honest unit for an attenuator, and what the hi-fi world reads.
+      $("vol-val").textContent = hw.db != null ? `${Math.round(hw.db)} dB` : `${pos}%`;
+      $("vol-icon").className =
+        `vol-icon ${pos === 0 ? "is-mute" : pos < 50 ? "is-low" : "is-high"}`;
+    }
+    el.disabled = false;
+    el.title = t("player.volume_hardware_title");
+    w.className = "hint";
+    w.textContent = t("player.volume_hardware_hint", { control: hw.control });
+    w.hidden = false;
+    return;
+  }
+
+  // No hardware volume control on this DAC.
+  //
+  // qbzd's own volume applies nothing in hw+exclusive mode, so there is no
+  // second path to fall back on: the control is disabled outright rather than
+  // left looking operable. Better an honestly greyed-out slider than one that
+  // moves and changes nothing.
+  const p = s.daemon?.playback || {};
+  const v = Math.round((p.volume ?? 1) * 100);
+  if (!dragging) {
+    el.value = v;
+    $("vol-val").textContent = "—";
+    $("vol-icon").className = "vol-icon is-mute";
+  }
+  el.disabled = true;
+  el.title = t("player.volume_unavailable_title");
+  w.className = "hint warn";
+  w.textContent = t("player.volume_unavailable_hint");
+  w.hidden = false;
+}
+
+async function refreshHwVolume() {
+  try { hwVol = await api("/api/hwvolume"); }
+  catch { hwVol = null; }
+  if (state) renderVolume(state);
 }
 
 function renderAudio(s) {
@@ -249,6 +319,18 @@ function renderAudio(s) {
   fillSelect($("volume-mode"), s.choices.volume_mode, volumeLabel,
              s.settings?.["qconnect.volume_mode"]);
 
+  // The mode is a real choice again, but about OUR volume path rather than
+  // qbzd's inert one:
+  //   software — the slider drives the DAC's own attenuator
+  //   locked   — fixed output at 0 dB, the amplifier does the volume
+  // qbzd's key is reused as the store: "locked" already means "do not touch
+  // the level", so the two readings agree.
+  const modeHint = $("volume-mode").parentElement.querySelector(".hint");
+  if (modeHint) {
+    modeHint.textContent = t("audio.volume_mode_hint");
+    modeHint.className = "hint";
+  }
+
   // qbzd stores booleans as the strings "true"/"false".
   // Skip while focused so a poll cannot flip the switch under the user's finger.
   if (document.activeElement !== $("gapless")) {
@@ -285,9 +367,21 @@ function renderAccount(s) {
 
 function renderHealth(s) {
   const h = s.health || {};
-  if (h.healthy === true) setFact($("power"), t("system.power_ok"), "ok");
-  else if (h.flags?.length) setFact($("power"), `${h.throttled_raw} — ${h.flags[0]}`, "err");
-  else setFact($("power"), t("system.power_unknown"), "");
+  const el = $("power");
+  if (h.healthy === true) {
+    setFact(el, t("system.power_ok"), "ok");
+    // History belongs in a tooltip, not in an alarm: it is context for someone
+    // already investigating, not a call to action.
+    el.title = h.since_boot?.length
+      ? t("system.power_since_boot", { flags: h.since_boot.map(flagLabel).join(", ") })
+      : "";
+  } else if (h.active?.length) {
+    setFact(el, h.active.map(flagLabel).join(", "), "err");
+    el.title = h.throttled_raw || "";
+  } else {
+    setFact(el, t("system.power_unknown"), "");
+    el.title = "";
+  }
   $("temp").textContent = h.temperature_c != null ? `${h.temperature_c} °C` : "—";
   const up = s.daemon?.uptime_secs;
   $("uptime").textContent = up
@@ -330,7 +424,16 @@ async function save(key, value) {
 
 $("device").addEventListener("change", (e) => save("audio.device", e.target.value));
 $("quality").addEventListener("change", (e) => save("playback.quality", e.target.value));
-$("volume-mode").addEventListener("change", (e) => save("qconnect.volume_mode", e.target.value));
+$("volume-mode").addEventListener("change", async (e) => {
+  const mode = e.target.value;
+  // Switching to locked restores full output first: "fixed line output" means
+  // 0 dB, not "frozen at whatever the slider happened to be".
+  if (mode === "locked" && hwVol?.available) {
+    try { hwVol = await api("/api/hwvolume", { method: "POST", body: JSON.stringify({ percent: 100 }) }); }
+    catch { /* reported by save() below if it matters */ }
+  }
+  await save("qconnect.volume_mode", mode);
+});
 
 $("gapless").addEventListener("change", async (e) => {
   const el = e.target;
@@ -364,9 +467,22 @@ $("volume").addEventListener("input", (e) => {
   $("vol-val").textContent = `${e.target.value}%`;
 });
 $("volume").addEventListener("change", async (e) => {
-  try { await api("/api/volume", { method: "POST", body: JSON.stringify({ volume: e.target.value / 100 }) }); }
-  catch (err) { toast(t("toast.error", { error: err.message })); }
-  finally { dragging = false; }
+  const pct = Number(e.target.value);
+  try {
+    if (hwVol?.available) {
+      hwVol = await api("/api/hwvolume", {
+        method: "POST", body: JSON.stringify({ percent: pct }),   // slider position
+      });
+    } else {
+      await api("/api/volume", {
+        method: "POST", body: JSON.stringify({ volume: pct / 100 }),
+      });
+    }
+  } catch (err) { toast(t("toast.error", { error: err.message })); }
+  finally {
+    dragging = false;
+    if (state) renderVolume(state);
+  }
 });
 
 $("qobuz-login").addEventListener("click", async () => {
@@ -502,9 +618,13 @@ let pollTimer = null;
 async function start() {
   showApp();
   await refresh().catch(() => {});
+  refreshHwVolume();
   refreshWifi();
   connectEvents();
-  if (!pollTimer) pollTimer = setInterval(() => refresh().catch(() => {}), 5000);
+  if (!pollTimer) pollTimer = setInterval(() => {
+    refresh().catch(() => {});
+    refreshHwVolume();
+  }, 5000);
 }
 
 (async () => {

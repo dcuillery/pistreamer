@@ -11,6 +11,11 @@ Group={{ ansible_user }}
 WorkingDirectory={{ webui_dir }}
 Environment=PISTREAMER_WEB_CONFIG=/etc/pistreamer/web.json
 Environment=QBZD_HOST=127.0.0.1:8182
+# Bottom of the volume slider, in dB. The raw DAC scale spans 0 to -127 dB,
+# which would put -63 dB at half travel; this window keeps the travel useful.
+Environment=PISTREAMER_VOLUME_MIN_DB={{ webui_volume_min_db }}
+Environment=PISTREAMER_VOLUME_CURVE={{ webui_volume_curve }}
+Environment=PISTREAMER_VOLUME_TAPER={{ webui_volume_taper }}
 ExecStart={{ webui_dir }}/venv/bin/uvicorn app:app --host {{ webui_bind }} --port {{ webui_port }}
 Restart=on-failure
 RestartSec=5

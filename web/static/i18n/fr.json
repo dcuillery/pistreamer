@@ -1,13 +1,10 @@
 {
   "_comment": "Traductions françaises. Les {espaces réservés} sont substitués à l'exécution : ils doivent être conservés tels quels. Typographie française : guillemets « », apostrophes courbes, espace insécable avant : ; ! ?",
-
   "lang.label": "Langue",
-
   "gate.login.subtitle": "Accès protégé",
   "gate.login.password": "Mot de passe",
   "gate.login.submit": "Se connecter",
   "gate.login.wrong": "Mot de passe incorrect.",
-
   "gate.setup.title": "Bienvenue",
   "gate.setup.subtitle": "Choisissez un mot de passe pour protéger cet appareil.",
   "gate.setup.warning": "Tant qu'aucun mot de passe n'est défini, n'importe qui sur votre réseau peut configurer ce streamer. Définissez-le maintenant.",
@@ -18,19 +15,14 @@
   "gate.setup.too_short": "8 caractères minimum.",
   "gate.setup.save_failed": "Impossible d'enregistrer : {error}",
   "gate.setup.done": "Mot de passe défini",
-
   "topbar.logout": "Quitter",
-
   "player.nothing": "Rien en lecture",
   "player.prev": "Précédent",
   "player.play_pause": "Lecture / pause",
   "player.next": "Suivant",
   "player.volume": "Volume",
   "player.volume_locked_title": "Volume verrouillé — réglez le niveau sur votre amplificateur",
-  "player.volume_software_title": "Volume logiciel",
-  "player.volume_locked_hint": "Volume verrouillé : le flux n'est jamais atténué numériquement. Réglez le niveau sur votre amplificateur.",
-  "player.volume_software_warn": "Volume logiciel à {pct} % : le signal est atténué numériquement, il n'est donc plus bit-perfect. Mettez 100 % et réglez le niveau sur votre amplificateur.",
-
+  "player.volume_locked_hint": "Volume verrouillé : le DAC reste à pleine sortie et n'atténue jamais. Réglez le niveau sur votre amplificateur.",
   "audio.title": "Sortie audio",
   "audio.fact_format": "Format en cours",
   "audio.fact_bitperfect": "Bit-perfect",
@@ -38,7 +30,7 @@
   "audio.device_label": "Convertisseur (DAC)",
   "audio.quality_label": "Qualité de lecture",
   "audio.volume_mode_label": "Contrôle du volume",
-  "audio.volume_mode_hint": "« Verrouillé » désactive le volume logiciel : le flux n'est jamais retouché et votre amplificateur gère le niveau.",
+  "audio.volume_mode_hint": "« Verrouillé » maintient le DAC à pleine sortie et laisse le volume à votre amplificateur — la sortie ligne fixe classique. Sinon, le curseur ci-dessus pilote l'atténuateur du DAC, ce qui préserve le bit-perfect.",
   "audio.gapless_label": "Lecture sans blanc",
   "audio.gapless_hint": "Enchaîne les pistes sans silence — précieux sur un album live ou un mix continu. Revers connu : le préchargement peut ignorer un changement de morceau demandé depuis l'application Qobuz, qui continue alors de jouer la piste précédente.",
   "audio.gapless_sr": "Activer la lecture sans blanc",
@@ -51,15 +43,12 @@
   "audio.device_offline": "{device} — éteint ou débranché",
   "audio.caps": "Prend en charge {rates} kHz",
   "audio.caps_bits": " en {bits} bits",
-
   "quality.mp3": "MP3 320 kbit/s",
   "quality.cd": "CD — 16 bits / 44,1 kHz",
   "quality.hires": "Hi-Res — 24 bits / 96 kHz",
   "quality.hires_plus": "Hi-Res+ — jusqu'à 24 bits / 192 kHz",
-
-  "volume_mode.software": "Logiciel (réglable depuis l'application)",
-  "volume_mode.locked": "Verrouillé (bit-perfect garanti)",
-
+  "volume_mode.software": "Contrôler le volume du DAC (si disponible)",
+  "volume_mode.locked": "Verrouillé — sortie fixe à 0 dB",
   "qobuz.title": "Compte Qobuz",
   "qobuz.fact_state": "État",
   "qobuz.fact_user": "Identifiant",
@@ -69,14 +58,12 @@
   "qobuz.url_hint": "Ouvrez ce lien dans votre navigateur pour autoriser l'appareil :",
   "qobuz.signed_in": "connecté",
   "qobuz.signed_out": "non connecté",
-
   "qconnect.title": "Qobuz Connect",
   "qconnect.fact_state": "État",
   "qconnect.fact_session": "Session",
   "qconnect.name_label": "Nom affiché dans l'application Qobuz",
   "qconnect.session_active": "active",
   "qconnect.session_inactive": "inactive",
-
   "system.title": "État du système",
   "system.fact_power": "Alimentation",
   "system.fact_temp": "Température",
@@ -84,7 +71,6 @@
   "system.power_ok": "correcte",
   "system.power_unknown": "inconnue",
   "system.uptime": "{hours} h {minutes} min",
-
   "wifi.title": "Réseau Wi-Fi",
   "wifi.fact_current": "Réseau actuel",
   "wifi.fact_signal": "Signal",
@@ -109,23 +95,32 @@
   "wifi.no_response": "Pas de réponse ({error}). Si le réseau a changé, rejoignez-le puis rechargez cette page.",
   "wifi.unavailable": "indisponible",
   "wifi.status_failed": "Impossible de lire l'état du Wi-Fi : {error}",
-
   "security.title": "Sécurité",
   "security.current_label": "Mot de passe actuel",
   "security.new_label": "Nouveau mot de passe (8 caractères min.)",
   "security.save": "Changer le mot de passe",
   "security.changed": "Mot de passe modifié.",
   "security.failed": "Échec : {error}",
-
   "banner.power_title": "Alimentation insuffisante",
-  "banner.power_body": "Le Pi signale : {flags}. Utilisez une alimentation 5,1 V / 2,5 A — c'est la première cause de coupures.",
+  "banner.power_body": "Le Pi signale actuellement : {flags}. Utilisez une alimentation 5,1 V / 2,5 A — c'est la première cause de coupures.",
   "banner.daemon_title": "Démon injoignable",
   "banner.daemon_body": "qbzd ne répond pas sur 127.0.0.1:8182.",
   "banner.nopw_title": "Aucun mot de passe configuré",
   "banner.nopw_body": "N'importe qui sur votre réseau peut modifier ces réglages.",
   "banner.stream_error_title": "Dernière erreur de flux",
-
   "toast.saved": "Enregistré",
   "toast.save_failed": "Échec : {error}",
-  "toast.error": "Erreur : {error}"
+  "toast.error": "Erreur : {error}",
+  "flag.undervoltage": "sous-tension",
+  "flag.freq_capped": "fréquence CPU bridée",
+  "flag.throttled": "bridage actif",
+  "flag.temp_limit": "limite de température",
+  "banner.thermal_title": "Limite de température atteinte",
+  "banner.thermal_body": "Le Pi réduit sa vitesse pour refroidir. Vérifiez la ventilation autour du boîtier.",
+  "system.power_since_boot": "Depuis le démarrage : {flags} (remis à zéro au redémarrage)",
+  "player.volume_hardware_title": "Volume matériel du DAC",
+  "player.volume_hardware_hint": "Volume matériel, appliqué dans le DAC ({control}) — le flux reste bit-perfect.",
+  "player.volume_unavailable_title": "Ce DAC n'expose aucun contrôle de volume",
+  "player.volume_unavailable_hint": "Volume indisponible : ce convertisseur n'expose aucun contrôle matériel, et l'atténuation logicielle est désactivée en mode bit-perfect. Utilisez votre amplificateur.",
+  "banner.stream_error_note": "conservée jusqu'au redémarrage du démon, elle peut donc être déjà résolue."
 }

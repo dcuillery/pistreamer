@@ -295,6 +295,33 @@ async def transport(action: str) -> dict:
     return {"ok": True}
 
 
+# --------------------------------------------------------------------------
+# DAC hardware volume
+# --------------------------------------------------------------------------
+# qbzd's own volume is inert here — see system.py for why. These two endpoints
+# drive the DAC's mixer directly, which actually changes the level and keeps
+# the output bit-perfect.
+
+@app.get("/api/hwvolume", dependencies=[Depends(auth_required)])
+async def hwvolume_get() -> dict:
+    settings = await qbzd.settings_show()
+    return await system.mixer_status(settings.get("audio.device", ""))
+
+
+@app.post("/api/hwvolume", dependencies=[Depends(auth_required)])
+async def hwvolume_set(request: Request) -> dict:
+    body = await request.json()
+    try:
+        percent = int(round(float(body["percent"])))
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="percent must be a number")
+    settings = await qbzd.settings_show()
+    try:
+        return await system.mixer_set(settings.get("audio.device", ""), percent)
+    except system.SystemError_ as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 @app.post("/api/volume", dependencies=[Depends(auth_required)])
 async def volume(request: Request) -> dict:
     body = await request.json()
