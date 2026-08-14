@@ -21,33 +21,36 @@ Built and tuned for the board in hand:
 | **SoC** | BCM2837, quad-core Cortex-A53 @ 1.2 GHz — **ARMv8, 64-bit capable** |
 | **RAM** | 1 GB (905 MiB usable) |
 | **OS** | Raspberry Pi OS **Lite, 64-bit** — Debian 13 (trixie), glibc 2.41 |
-| **DAC** | **Musical Fidelity V90-DAC** (`25b0:0010`), class-compliant UAC1 |
+| **DAC** | Any class-compliant USB DAC — UAC1 or UAC2, no vendor driver required |
 
-All verified on the actual device, 2026-08-07.
+Board figures verified on the actual device, 2026-08-07.
 
-### What the V90-DAC actually supports
+### What your DAC actually supports
 
-Read from `/proc/asound/card1/stream0` rather than the marketing copy:
+Read it off the device rather than the marketing copy — `/proc/asound/card<N>/stream0`,
+which `make dacs` and `make hwparams` surface for you. A UAC1 converter reports something
+like:
 
 ```
 Format: S24_3LE          Rates: 32000, 44100, 48000, 88200, 96000
 Bits: 24                 Endpoint: 0x01 (1 OUT) (ASYNC)
 ```
 
-Three consequences worth internalising:
+Three things to read off whatever yours prints:
 
-- **The ceiling is 24-bit/96 kHz.** `qbzd` can do 24/192, but this DAC cannot. Qobuz
-  192 kHz tracks *must* be downsampled to 96 kHz — that's a hardware limit, not a
-  misconfiguration. Everything at 96 kHz and below plays bit-perfect.
-- **It's an asynchronous endpoint**, so the DAC owns the clock rather than slaving to the
-  Pi's. That's the good arrangement, and it means jitter is largely the DAC's problem.
-- **It enumerates as USB *full speed* (12 Mbit/s)**, not high speed — normal for UAC1.
-  This one matters more than it looks: full-speed devices behind a high-speed hub require
-  **split transactions**, which on the Pi are handled by the very `dwc_otg` FIQ state
-  machine that the `usb_fiq_fsm_mask` tunable adjusts. If you get crackle, that tunable is
-  a more likely remedy on this pairing than it would be with a high-speed UAC2 DAC.
-  24/96 stereo is ~4.6 Mbit/s against a 12 Mbit/s full-speed budget, so the headroom is
-  real but not lavish.
+- **The rate ceiling is the DAC's, not `qbzd`'s.** `qbzd` can do 24/192; if the highest rate
+  listed is 96000, Qobuz 192 kHz tracks *must* be downsampled to fit — a hardware limit, not
+  a misconfiguration. Everything at or below the ceiling plays bit-perfect, and
+  `audio.limit_quality_to_device` is on so `qbzd` adapts to what the hardware reports.
+- **`ASYNC` means the DAC owns the clock** rather than slaving to the Pi's. That is the good
+  arrangement, and it makes jitter largely the DAC's problem. A `SYNC` or `ADAPTIVE` endpoint
+  hands the timing job back to the Pi instead.
+- **UAC1 devices enumerate as USB *full speed* (12 Mbit/s)**, not high speed. This one matters
+  more than it looks: full-speed devices behind a high-speed hub require **split
+  transactions**, which on the Pi are handled by the very `dwc_otg` FIQ state machine that the
+  `usb_fiq_fsm_mask` tunable adjusts. If you get crackle from a UAC1 DAC, that tunable is a
+  more likely remedy than it would be with a high-speed UAC2 one. 24/96 stereo is
+  ~4.6 Mbit/s against a 12 Mbit/s full-speed budget, so the headroom is real but not lavish.
 
 64-bit matters: `qbzd` ships an `aarch64` binary only. The Pi 3B is ARMv8 so it qualifies.
 A Pi 1, Pi 2, or original Pi Zero W is ARMv6/v7 and **cannot** run this.
@@ -328,8 +331,8 @@ Two things worth checking after a swap, since they are DAC-specific:
 
 - **`make hwparams`** while playing — confirm `rate` tracks the source material.
 - **The new DAC's ceiling.** `audio.limit_quality_to_device` is on, so `qbzd` adapts to what
-  the hardware reports. The V90-DAC tops out at 24-bit/96 kHz; a UAC2 DAC may reach 24/192,
-  in which case you get the full Qobuz hi-res stream with no downsampling.
+  the hardware reports. A UAC1 converter typically tops out at 24-bit/96 kHz; a UAC2 one may
+  reach 24/192, in which case you get the full Qobuz hi-res stream with no downsampling.
 
 ---
 
@@ -433,7 +436,7 @@ qbz-pistreamer/
 │   └── static/
 │       ├── index.html
 │       ├── app.js
-│       ├── style.css         # ZERON theme
+│       ├── style.css         # Zero.N theme
 │       ├── i18n.js
 │       └── i18n/{en,fr}.json # translations — edit these
 ├── scripts/release.py        # roll [Unreleased] into a version, commit, tag
@@ -538,8 +541,7 @@ The same applies here, and to this project additionally.
 ## Trademarks
 
 **Qobuz** is a trademark of Qobuz. **Raspberry Pi** is a trademark of Raspberry Pi Ltd.
-**Musical Fidelity** is a trademark of Musical Fidelity Ltd. **Debian** is a registered
-trademark of Software in the Public Interest, Inc.
+**Debian** is a registered trademark of Software in the Public Interest, Inc.
 
 This project is **not affiliated with, endorsed by, sponsored by or certified by** any of
 them. Their names are used solely to describe interoperability — to state factually which
