@@ -14,12 +14,71 @@ failure you cannot see is the expensive kind.
 ## [Unreleased]
 ### Added
 
+- **A setup wizard, so a streamer can be built without a terminal.** Five steps
+  — network, DAC, Qobuz sign-in, name and quality, summary — shown once on a
+  fresh device and re-runnable from Settings › Security. Each step commits
+  through the *same* endpoints the Settings view uses, so a value set in the
+  wizard and the same value set later cannot drift apart. Skippable on
+  purpose: a device already configured with `make setup` over SSH should not
+  be marched through five screens to reach its own player.
+
+- **The UI is now two views.** Player stays the landing screen; everything
+  configurable moved behind a Settings view with five tabs (Audio, Qobuz,
+  Network, System, Security). Wi-Fi moved out of the main scroll into
+  Network.
+
+- **Maintenance from the browser** — the four operations that previously
+  required SSH:
+  - **Upgrade qbzd** to the newest upstream release, with the daemon restarted
+    afterwards and the previous binary kept as `/usr/bin/qbzd.bak`. The
+    SHA-256 of what was installed is displayed, because it has to be copied
+    into `qbzd_sha256` or the next `make provision` reinstalls the older
+    pinned build over the top of it.
+  - **Restart** the daemon, this interface, or the whole Pi.
+  - **Logs** for `qbzd` and `pistreamer-web`, read straight from the journal.
+  - **Factory reset**: removes the Qobuz token, every qbzd setting, the seed
+    ledger and the web password, then returns to the wizard. It deliberately
+    does *not* touch anything Ansible put on the host — ALSA, boot cmdline,
+    governor, units — because a web button that leaves a Pi unable to play
+    audio and unable to be fixed from the same page is not a reset.
+
+- **A record of when settings last changed**, shown in the footer on every
+  screen. qbzd stores values but keeps no history, so "has anything changed
+  since this last worked?" was previously unanswerable without a shell. Every
+  successful write through the UI is stamped in `/etc/pistreamer/state.json`
+  with the keys it touched; the last 25 are kept.
+
+- Two privileged operations gained a helper, `/usr/local/sbin/pistreamer-admin`,
+  reached through one narrow sudo rule exactly like `pistreamer-net`. It never
+  accepts a URL from the caller — it builds the download address itself from a
+  fixed repository and a version string it validates — because a script that
+  writes a caller-supplied file to `/usr/bin/qbzd` as root is a root shell with
+  extra steps. It also refuses to install a binary that will not execute on the
+  machine, which is checked by running it rather than by inspecting the ELF
+  header: `file` is not present on Lite images.
+
 - **Postcardware.** The project is now postcardware, in the sense Spatie use the
   word: still MIT, still free to use and fork, but users are asked to send the
   author a postcard from their hometown — or a CD or LP worth playing on it.
   Documented in the README's licence section and in `credits.txt`. Deliberately
   *not* written into `LICENSE`: a postcard clause with legal force would make
   the project non-free and unpackageable, which is not the point of asking.
+
+### Fixed
+
+- **`/etc/pistreamer` was mode 0750, which made the first-run password claim
+  impossible.** The directory was group-readable but not group-writable, and
+  both the password store and the new settings ledger write through a
+  temporary file plus an atomic rename — which needs write permission on the
+  *directory*, not just on the file. The wizard would have failed with EACCES
+  on a path that looked writable. Now 0770.
+
+- A missing binary in the maintenance paths raised `FileNotFoundError`, which
+  is an `OSError` and not the module's own error type, so it sailed past every
+  caller's handler and became a 500. One absent helper took the entire
+  maintenance panel down with it, including the half that was working. Missing
+  executables are now reported per-field, and the panel degrades instead of
+  disappearing.
 
 ---
 

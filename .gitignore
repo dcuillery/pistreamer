@@ -6,3 +6,7 @@ inventory.ini
 .ansible/
 *.log
 /docs/zero.n*
+
+# Python bytecode — the web app gets imported locally when testing it
+__pycache__/
+*.py[co]

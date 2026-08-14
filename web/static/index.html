@@ -15,7 +15,7 @@
 <div id="gate" class="gate" hidden>
   <div class="gate-inner">
     <form id="login-form" class="card gate-card" hidden>
-      <h1 class="gate-title">Pi&nbsp;Streamer</h1>
+      <h1 class="gate-title">Qbz&nbsp;Pi&nbsp;Streamer</h1>
       <p class="muted" data-i18n="gate.login.subtitle"></p>
       <input id="password" type="password" data-i18n-placeholder="gate.login.password"
              autocomplete="current-password" required>
@@ -47,16 +47,114 @@
   </div>
 </div>
 
+<!-- Setup wizard -------------------------------------------------------
+     Shown until it has been completed once. Every step reuses the same API
+     calls as the Settings view, so nothing here is a parallel implementation
+     that could drift from it. -->
+<main id="wizard" class="wizard" hidden>
+  <header class="topbar">
+    <div class="brand">
+      <strong data-i18n="wizard.title"></strong>
+    </div>
+    <div class="topbar-right">
+      <div class="lang" role="group" data-i18n-aria-label="lang.label">
+        <button type="button" class="lang-btn" data-lang="en">EN</button>
+        <span class="lang-sep" aria-hidden="true">·</span>
+        <button type="button" class="lang-btn" data-lang="fr">FR</button>
+      </div>
+      <button id="wiz-skip" class="btn btn-ghost" data-i18n="wizard.skip"></button>
+    </div>
+  </header>
+
+  <ol id="wiz-steps" class="steps" aria-label="Setup progress"></ol>
+
+  <section class="card wizard-card">
+    <!-- 1 · Network -->
+    <div class="wiz-step" data-step="network">
+      <h2 data-i18n="wizard.network.title"></h2>
+      <p class="muted" data-i18n="wizard.network.intro"></p>
+      <dl class="facts">
+        <div><dt data-i18n="wifi.fact_current"></dt><dd id="wiz-wifi-ssid">—</dd></div>
+        <div><dt data-i18n="wifi.fact_ip"></dt><dd id="wiz-wifi-ip">—</dd></div>
+      </dl>
+      <p class="hint" data-i18n="wizard.network.hint"></p>
+    </div>
+
+    <!-- 2 · DAC -->
+    <div class="wiz-step" data-step="dac" hidden>
+      <h2 data-i18n="wizard.dac.title"></h2>
+      <p class="muted" data-i18n="wizard.dac.intro"></p>
+      <label class="field">
+        <span data-i18n="audio.device_label"></span>
+        <select id="wiz-device"></select>
+        <small id="wiz-device-caps" class="hint"></small>
+      </label>
+      <p id="wiz-dac-empty" class="hint warn" data-i18n="wizard.dac.none" hidden></p>
+    </div>
+
+    <!-- 3 · Qobuz -->
+    <div class="wiz-step" data-step="qobuz" hidden>
+      <h2 data-i18n="wizard.qobuz.title"></h2>
+      <p class="muted" data-i18n="wizard.qobuz.intro"></p>
+      <dl class="facts">
+        <div><dt data-i18n="qobuz.fact_state"></dt><dd id="wiz-auth-state">—</dd></div>
+      </dl>
+      <button id="wiz-qobuz-login" class="btn btn-primary" data-i18n="qobuz.login"></button>
+      <div id="wiz-login-url-box" class="url-box" hidden>
+        <p class="hint" data-i18n="qobuz.url_hint"></p>
+        <a id="wiz-login-url" href="#" target="_blank" rel="noopener"></a>
+      </div>
+    </div>
+
+    <!-- 4 · Name -->
+    <div class="wiz-step" data-step="name" hidden>
+      <h2 data-i18n="wizard.name.title"></h2>
+      <p class="muted" data-i18n="wizard.name.intro"></p>
+      <label class="field">
+        <span data-i18n="qconnect.name_label"></span>
+        <input id="wiz-name" type="text" maxlength="40">
+      </label>
+      <label class="field">
+        <span data-i18n="audio.quality_label"></span>
+        <select id="wiz-quality"></select>
+      </label>
+    </div>
+
+    <!-- 5 · Done -->
+    <div class="wiz-step" data-step="done" hidden>
+      <h2 data-i18n="wizard.done.title"></h2>
+      <p class="muted" data-i18n="wizard.done.intro"></p>
+      <dl class="facts">
+        <div><dt data-i18n="wizard.done.fact_dac"></dt><dd id="wiz-sum-dac">—</dd></div>
+        <div><dt data-i18n="wizard.done.fact_qobuz"></dt><dd id="wiz-sum-qobuz">—</dd></div>
+        <div><dt data-i18n="wizard.done.fact_name"></dt><dd id="wiz-sum-name">—</dd></div>
+      </dl>
+      <p class="hint" data-i18n="wizard.done.hint"></p>
+    </div>
+
+    <div class="wiz-nav">
+      <button id="wiz-back" class="btn" data-i18n="wizard.back"></button>
+      <button id="wiz-next" class="btn btn-primary" data-i18n="wizard.next"></button>
+    </div>
+  </section>
+</main>
+
 <!-- App --------------------------------------------------------------- -->
 <main id="app" hidden>
 
   <header class="topbar">
     <div class="brand">
       <span class="dot" id="conn-dot" aria-hidden="true"></span>
-      <strong id="device-name">Pi Streamer</strong>
+      <strong id="device-name">Qbz Pi Streamer</strong>
     </div>
     <div class="topbar-right">
       <span id="subscription" class="pill"></span>
+      <nav class="views" role="group" data-i18n-aria-label="nav.label">
+        <button type="button" class="view-btn is-active" data-view="player"
+                data-i18n="nav.player"></button>
+        <button type="button" class="view-btn" data-view="settings"
+                data-i18n="nav.settings"></button>
+      </nav>
       <div class="lang" role="group" data-i18n-aria-label="lang.label">
         <button type="button" class="lang-btn" data-lang="en">EN</button>
         <span class="lang-sep" aria-hidden="true">·</span>
@@ -68,6 +166,9 @@
   </header>
 
   <div id="banners"></div>
+
+  <!-- View: player ---------------------------------------------------- -->
+  <div id="view-player" class="view">
 
   <!-- Now playing --------------------------------------------------- -->
   <section class="card player">
@@ -133,6 +234,27 @@
     </div>
   </section>
 
+  </div><!-- /view-player -->
+
+  <!-- View: settings -------------------------------------------------- -->
+  <div id="view-settings" class="view" hidden>
+
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab-btn is-active" data-tab="audio" role="tab"
+            data-i18n="tab.audio"></button>
+    <button type="button" class="tab-btn" data-tab="qobuz" role="tab"
+            data-i18n="tab.qobuz"></button>
+    <button type="button" class="tab-btn" data-tab="network" role="tab"
+            data-i18n="tab.network"></button>
+    <button type="button" class="tab-btn" data-tab="system" role="tab"
+            data-i18n="tab.system"></button>
+    <button type="button" class="tab-btn" data-tab="security" role="tab"
+            data-i18n="tab.security"></button>
+  </div>
+
+  <!-- Tab: audio ------------------------------------------------------ -->
+  <div class="tab-panel" data-tab="audio">
+
   <!-- Audio output --------------------------------------------------- -->
   <section class="card">
     <h3 data-i18n="audio.title"></h3>
@@ -172,6 +294,11 @@
     </div>
   </section>
 
+  </div><!-- /tab audio -->
+
+  <!-- Tab: qobuz ------------------------------------------------------ -->
+  <div class="tab-panel" data-tab="qobuz" hidden>
+
   <!-- Qobuz account -------------------------------------------------- -->
   <section class="card">
     <h3 data-i18n="qobuz.title"></h3>
@@ -202,15 +329,10 @@
     </label>
   </section>
 
-  <!-- System --------------------------------------------------------- -->
-  <section class="card">
-    <h3 data-i18n="system.title"></h3>
-    <dl class="facts">
-      <div><dt data-i18n="system.fact_power"></dt><dd id="power">—</dd></div>
-      <div><dt data-i18n="system.fact_temp"></dt><dd id="temp">—</dd></div>
-      <div><dt data-i18n="system.fact_daemon"></dt><dd id="uptime">—</dd></div>
-    </dl>
-  </section>
+  </div><!-- /tab qobuz -->
+
+  <!-- Tab: network ---------------------------------------------------- -->
+  <div class="tab-panel" data-tab="network" hidden>
 
   <!-- Wi-Fi ---------------------------------------------------------- -->
   <section class="card">
@@ -244,6 +366,78 @@
     <p id="wifi-result" class="hint" hidden></p>
   </section>
 
+  </div><!-- /tab network -->
+
+  <!-- Tab: system ----------------------------------------------------- -->
+  <div class="tab-panel" data-tab="system" hidden>
+
+  <!-- Health --------------------------------------------------------- -->
+  <section class="card">
+    <h3 data-i18n="system.title"></h3>
+    <dl class="facts">
+      <div><dt data-i18n="system.fact_power"></dt><dd id="power">—</dd></div>
+      <div><dt data-i18n="system.fact_temp"></dt><dd id="temp">—</dd></div>
+      <div><dt data-i18n="system.fact_daemon"></dt><dd id="uptime">—</dd></div>
+      <div><dt data-i18n="system.fact_service"></dt><dd id="daemon-unit">—</dd></div>
+    </dl>
+  </section>
+
+  <!-- Software ------------------------------------------------------- -->
+  <section class="card">
+    <h3 data-i18n="maint.title"></h3>
+    <dl class="facts">
+      <div><dt data-i18n="maint.fact_installed"></dt><dd id="qbzd-installed">—</dd></div>
+      <div><dt data-i18n="maint.fact_latest"></dt><dd id="qbzd-latest">—</dd></div>
+    </dl>
+    <div class="row">
+      <button id="qbzd-upgrade" type="button" class="btn" data-i18n="maint.upgrade"></button>
+      <button id="qbzd-check" type="button" class="btn btn-ghost" data-i18n="maint.check"></button>
+    </div>
+    <p class="hint" data-i18n="maint.upgrade_hint"></p>
+    <p id="upgrade-result" class="hint" hidden></p>
+  </section>
+
+  <!-- Power ---------------------------------------------------------- -->
+  <section class="card">
+    <h3 data-i18n="maint.restart_title"></h3>
+    <div class="row">
+      <button id="restart-daemon" type="button" class="btn" data-i18n="maint.restart_daemon"></button>
+      <button id="restart-web" type="button" class="btn" data-i18n="maint.restart_web"></button>
+      <button id="reboot" type="button" class="btn" data-i18n="maint.reboot"></button>
+    </div>
+    <p class="hint" data-i18n="maint.restart_hint"></p>
+  </section>
+
+  <!-- Logs ----------------------------------------------------------- -->
+  <section class="card">
+    <h3 data-i18n="logs.title"></h3>
+    <div class="row">
+      <select id="log-unit" class="grow">
+        <option value="qbzd">qbzd</option>
+        <option value="pistreamer-web">pistreamer-web</option>
+      </select>
+      <button id="log-refresh" type="button" class="btn" data-i18n="logs.refresh"></button>
+    </div>
+    <pre id="log-output" class="logs" data-i18n="logs.empty"></pre>
+  </section>
+
+  <!-- Reset ---------------------------------------------------------- -->
+  <section class="card danger">
+    <h3 data-i18n="reset.title"></h3>
+    <div class="banner err">
+      <strong data-i18n="reset.warning_title"></strong>
+      <span data-i18n="reset.warning_body"></span>
+    </div>
+    <p class="hint" data-i18n="reset.keeps"></p>
+    <button id="factory-reset" type="button" class="btn btn-danger" data-i18n="reset.button"></button>
+    <p id="reset-result" class="hint" hidden></p>
+  </section>
+
+  </div><!-- /tab system -->
+
+  <!-- Tab: security --------------------------------------------------- -->
+  <div class="tab-panel" data-tab="security" hidden>
+
   <!-- Security -------------------------------------------------------- -->
   <section class="card">
     <h3 data-i18n="security.title"></h3>
@@ -259,8 +453,19 @@
     <p id="pw-result" class="hint" hidden></p>
   </section>
 
+  <section class="card">
+    <h3 data-i18n="wizard.rerun_title"></h3>
+    <p class="hint" data-i18n="wizard.rerun_hint"></p>
+    <button id="rerun-wizard" type="button" class="btn" data-i18n="wizard.rerun"></button>
+  </section>
+
+  </div><!-- /tab security -->
+
+  </div><!-- /view-settings -->
+
   <footer class="foot muted">
-    <span id="version"></span> · <a href="https://github.com/dcuillery/qbz-pistreamer" target="_blank" rel="noopener">qbz-pistreamer</a>
+    <span id="version"></span> · <span id="last-saved"></span> ·
+    <a href="https://github.com/dcuillery/qbz-pistreamer" target="_blank" rel="noopener">qbz-pistreamer</a>
   </footer>
 </main>
 

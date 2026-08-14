@@ -1,0 +1,160 @@
+#!/bin/bash
+# Managed by pistreamer — privileged maintenance helper.
+#
+# Companion to pistreamer-net, same reasoning: the web UI runs unprivileged and
+# a handful of maintenance actions need root. Rather than granting the service
+# broad sudo, it may run only this script, whose surface is five fixed
+# subcommands.
+#
+# The single most important property here is that THE CALLER NEVER SUPPLIES A
+# URL. `upgrade` builds the download address itself from a fixed host, a fixed
+# repository and a version string it validates as semver. A helper that
+# accepted a URL and wrote the result to /usr/bin/qbzd would be a root shell
+# with extra steps.
+#
+# Subcommands:
+#   latest              report installed and newest upstream version (JSON)
+#   upgrade             install the newest upstream release (JSON)
+#   logs <unit> <n>     tail a system unit's journal (plain text)
+#   reset-seed          remove the provisioning seed ledger
+#   reboot              reboot the host
+
+set -euo pipefail
+
+REPO="vicrodh/qbz"
+API="https://api.github.com/repos/${REPO}/releases/latest"
+QBZD_BIN="/usr/bin/qbzd"
+SEED_FILE="/var/lib/pistreamer/qbzd-seeded.json"
+
+# Only these may be read through this helper. `journalctl -u <anything>` would
+# otherwise expose every service on the box, which is a wider grant than the
+# two units this UI is about.
+ALLOWED_UNITS="pistreamer-web qbzd"
+
+die() { printf '{"ok":false,"error":%s}\n' "$(printf '%s' "$1" | sed 's/\\/\\\\/g;s/"/\\"/g;s/^/"/;s/$/"/')"; exit 1; }
+
+installed_version() {
+  # `qbzd --version` prints e.g. "qbzd 2.0.2". Missing binary is not fatal:
+  # the UI shows "unknown" rather than failing the whole info request.
+  "$QBZD_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true
+}
+
+latest_version() {
+  # --fail so an HTTP error is an error rather than an HTML page parsed as JSON.
+  curl -fsSL --max-time 20 "$API" 2>/dev/null \
+    | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"v?[0-9]+\.[0-9]+\.[0-9]+"' \
+    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true
+}
+
+case "${1:-}" in
+
+  latest)
+    inst="$(installed_version)"
+    lat="$(latest_version)"
+    [ -n "$lat" ] || die "cannot reach the GitHub release API"
+    upgradable=false
+    # Plain string inequality: any difference is offered as an upgrade rather
+    # than trying to order semver in bash, which is where this kind of script
+    # usually starts being wrong.
+    [ -n "$inst" ] && [ "$inst" != "$lat" ] && upgradable=true
+    printf '{"ok":true,"installed":"%s","latest":"%s","upgradable":%s}\n' \
+      "${inst:-}" "$lat" "$upgradable"
+    ;;
+
+  upgrade)
+    lat="$(latest_version)"
+    [ -n "$lat" ] || die "cannot reach the GitHub release API"
+    # Validated, not trusted: this string is about to be interpolated into a
+    # download path and a filename.
+    printf '%s' "$lat" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || die "bad version '$lat'"
+
+    inst="$(installed_version)"
+    if [ "$inst" = "$lat" ]; then
+      printf '{"ok":true,"changed":false,"installed":"%s","latest":"%s"}\n' "$inst" "$lat"
+      exit 0
+    fi
+
+    tarball="qbzd-${lat}-linux-aarch64.tar.gz"
+    url="https://github.com/${REPO}/releases/download/v${lat}/${tarball}"
+
+    tmp="$(mktemp -d)"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmp'" EXIT
+
+    curl -fsSL --max-time 300 -o "$tmp/$tarball" "$url" \
+      || die "download failed: $url"
+
+    sha="$(sha256sum "$tmp/$tarball" | cut -d' ' -f1)"
+
+    tar xzf "$tmp/$tarball" -C "$tmp" || die "tarball did not extract"
+    bin="$(find "$tmp" -type f -name qbzd -perm -u+x | head -1)"
+    [ -n "$bin" ] || die "no qbzd binary inside $tarball"
+
+    # Refuse to install something that cannot run on this machine. Installing
+    # an unusable binary over a working one leaves no daemon and no easy way
+    # back from a web UI.
+    #
+    # Executing it is a better test than inspecting the ELF header with `file`,
+    # which is not installed on Raspberry Pi OS Lite: if the architecture is
+    # wrong or a library is missing, this is exactly where it fails.
+    chmod +x "$bin"
+    "$bin" --version >/dev/null 2>&1 \
+      || die "the downloaded binary does not run on this machine"
+
+    # Keep the outgoing binary. Rolling back is then a copy, not a re-download
+    # over a link that may be exactly what is broken.
+    [ -f "$QBZD_BIN" ] && cp -a "$QBZD_BIN" "${QBZD_BIN}.bak"
+
+    install -m 0755 -o root -g root "$bin" "$QBZD_BIN"
+
+    printf '{"ok":true,"changed":true,"installed":"%s","previous":"%s","sha256":"%s","backup":"%s"}\n' \
+      "$lat" "${inst:-}" "$sha" "${QBZD_BIN}.bak"
+    ;;
+
+  logs)
+    unit="${2:-}"
+    lines="${3:-200}"
+    printf '%s' "$lines" | grep -qE '^[0-9]{1,4}$' || die "bad line count"
+    # shellcheck disable=SC2076
+    case " $ALLOWED_UNITS " in
+      *" $unit "*) ;;
+      *) die "unit not allowed: $unit" ;;
+    esac
+    if [ "$unit" = "qbzd" ]; then
+      # qbzd is a *user* service. `--user-unit` would filter on the CALLER's
+      # uid, and this script runs as root, so it would match nothing. The
+      # journal field matches whichever account owns the unit.
+      journalctl _SYSTEMD_USER_UNIT=qbzd -n "$lines" --no-pager --output=short-iso 2>/dev/null || true
+    else
+      journalctl -u "$unit" -n "$lines" --no-pager --output=short-iso 2>/dev/null || true
+    fi
+    ;;
+
+  restart-web)
+    # Restarting the unit this request arrived through kills the reply, so the
+    # restart is detached and the caller answers first. --no-block alone is not
+    # enough: systemd still stops the service before the response is flushed.
+    (sleep 1; systemctl restart pistreamer-web) >/dev/null 2>&1 &
+    printf '{"ok":true,"restarting":"pistreamer-web"}\n'
+    ;;
+
+  reset-seed)
+    # The ledger records which settings provisioning has already applied once.
+    # Removing it is what makes the next `make provision` re-seed a device that
+    # has been reset, instead of assuming its own past work is still in place.
+    rm -f "$SEED_FILE"
+    printf '{"ok":true,"removed":"%s"}\n' "$SEED_FILE"
+    ;;
+
+  reboot)
+    # Detached, so the reply reaches the browser before the network goes away.
+    # Without the delay systemd tears down the web service first and the caller
+    # sees a connection reset rather than a confirmation.
+    (sleep 2; systemctl reboot) >/dev/null 2>&1 &
+    printf '{"ok":true,"rebooting":true}\n'
+    ;;
+
+  *)
+    die "usage: pistreamer-admin latest|upgrade|logs <unit> <n>|restart-web|reset-seed|reboot"
+    ;;
+esac

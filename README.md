@@ -201,7 +201,90 @@ make open              # open it in your browser
 make web-logs          # follow its log
 ```
 
-It lands on `http://streamer.local:8080/`.
+It lands on `http://streamer.local:8080/`, and has two views: **Player** and
+**Settings** (Audio · Qobuz · Network · System · Security).
+
+### Setup without a terminal
+
+A fresh device shows a **five-step wizard** — network, DAC, Qobuz sign-in, name and
+quality, summary — reached straight after you claim the device with a password. It
+covers the same ground as `make setup`, so a streamer can now be built end to end
+from a browser.
+
+Every step writes through the *same* endpoints the Settings view uses. There is no
+separate wizard mode on the backend, which is what stops a value set during setup and
+the same value changed later from drifting apart.
+
+The wizard is shown once and then never again. **Skip** it if you configured the
+device over SSH — that is not a trap door, it just records that setup is done. To run
+it again later: Settings › Security › *Run the wizard again*. Nothing is reset; each
+step simply shows what is currently configured.
+
+The flag lives on the Pi rather than in the browser, deliberately: it describes the
+device, not the phone looking at it, or every handset in the house would be greeted
+by a setup flow for a streamer that already works.
+
+### Maintenance, also without a terminal
+
+Settings › System covers the four operations that used to need SSH:
+
+| Action | What it does | Equivalent |
+|---|---|---|
+| **Upgrade qbzd** | Installs the newest upstream release and restarts the daemon | `make upgrade` |
+| **Restart** | The daemon, this interface, or the whole Pi | `make restart` |
+| **Logs** | Live journal for `qbzd` and `pistreamer-web` | `make logs` |
+| **Factory reset** | Back to a just-provisioned device | *(no equivalent)* |
+
+Two of these deserve more than a table row.
+
+**Upgrading is one click and always the latest release**, which is the blunt end of a
+real trade-off. `group_vars/all.yml` pins `qbzd_version` with a recorded SHA-256
+precisely because the Connect protocol is reverse-engineered, so a new release is also
+the most likely way for a working streamer to stop appearing in the Qobuz app.
+Upstream publishes no checksum file, so an upgrade from the UI cannot verify a *new*
+version the way provisioning verifies the pinned one — it trusts TLS to github.com and
+nothing more. Two mitigations, both visible in the interface: the outgoing binary is
+kept as `/usr/bin/qbzd.bak`, and the SHA-256 of what was installed is displayed
+afterwards. **Copy that hash into `qbzd_sha256`**, or the next `make provision` will
+reinstall the older pinned build straight over the top of it.
+
+**Factory reset** removes the Qobuz token, every qbzd setting, the device name, the
+seed ledger and the web password, then drops you back at the wizard. It deliberately
+leaves everything Ansible put on the host — ALSA configuration, boot cmdline, CPU
+governor, the units themselves. Those are not "settings" in the sense this page means,
+and a web button that leaves a Pi unable to play audio *and* unable to be fixed from
+the same page is not a reset. The Pi keeps its Wi-Fi credentials and stays reachable
+at the same address.
+
+### When settings last changed
+
+The footer carries a **“Settings saved …”** stamp on every screen. `qbzd` stores values
+but keeps no history, so "has anything changed since this last worked?" could not be
+answered without a shell. Every successful write through the UI — a setting, a Wi-Fi
+change, a password, an upgrade — is now stamped in `/etc/pistreamer/state.json` along
+with the keys it touched, and the last 25 are kept.
+
+Only writes that actually landed are recorded. A failed `settings set` leaves no
+entry, because a ledger that logs attempts rather than outcomes tells you the device is
+in a state it is not.
+
+### How the privileged bits work
+
+Upgrading, reading a system unit's journal, clearing the root-owned seed ledger and
+rebooting all need root. Rather than granting the service broad sudo, they go through
+`/usr/local/sbin/pistreamer-admin` — the same pattern as `pistreamer-net` for Wi-Fi —
+reached by one narrow rule in `/etc/sudoers.d/`.
+
+The property worth stating: **the helper never accepts a URL from the caller.** It
+builds the download address itself from a fixed repository and a version string it
+validates as semver. A script that wrote a caller-supplied file to `/usr/bin/qbzd` as
+root would be a root shell with extra steps. It also refuses to install a binary that
+will not execute here — checked by *running* it, since `file` is not present on Lite
+images.
+
+Restarting `qbzd` and reading its journal need no elevation at all: it is a *user*
+service owned by the same account this app runs as. They only need `XDG_RUNTIME_DIR`,
+which a `User=` system unit does not inherit.
 
 ### Volume, done properly
 

@@ -28,6 +28,7 @@ from fastapi.responses import (FileResponse, JSONResponse, RedirectResponse,
                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 
+import admin
 import qbzd
 import system
 
@@ -148,6 +149,10 @@ async def change_password(request: Request) -> dict:
         CFG.update(system.write_password(CONFIG, new))
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"cannot write config: {exc}")
+    try:
+        admin.record_change(["web.password"], source="security")
+    except admin.AdminError:
+        pass
     return {"ok": True}
 
 
@@ -182,9 +187,17 @@ async def wifi_connect(request: Request) -> dict:
     if not ssid:
         raise HTTPException(status_code=400, detail="SSID is required")
     try:
-        return await system.wifi_connect(ssid, passphrase)
+        result = await system.wifi_connect(ssid, passphrase)
     except system.SystemError_ as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+    # The helper reports failure in-band with a 200, so the ledger follows its
+    # verdict rather than the status code.
+    if result.get("ok"):
+        try:
+            admin.record_change(["wifi.ssid"], source="wifi")
+        except admin.AdminError:
+            pass
+    return result
 
 
 @app.post("/api/logout")
@@ -196,10 +209,17 @@ async def logout_session() -> Response:
 
 @app.get("/api/session")
 async def session(request: Request) -> dict:
+    st = admin.read_state()
     return {
         "authenticated": not CFG.get("password_hash")
                           or _verify(request.cookies.get(SESSION_COOKIE, "")),
         "password_configured": bool(CFG.get("password_hash")),
+        # Drives the choice between the stepped wizard and the normal app. Read
+        # from disk rather than inferred from settings: a device can be fully
+        # configured by `make setup` over SSH, and re-showing the wizard to
+        # someone who already finished on the command line would be wrong.
+        "wizard_completed_at": st.get("wizard_completed_at"),
+        "settings_last_saved": st.get("settings_last_saved"),
     }
 
 
@@ -258,8 +278,16 @@ async def update_settings(request: Request) -> dict:
             applied.append(key)
         except qbzd.QbzdError as exc:
             failed[key] = str(exc)
+    # Only what actually landed is stamped — see admin.record_change.
+    if applied:
+        try:
+            admin.record_change(applied)
+        except admin.AdminError:
+            pass  # the setting IS saved; failing the request over the ledger
+                  # would be reporting a worse outcome than occurred
     return {"applied": applied, "failed": failed,
-            "settings": await qbzd.settings_show()}
+            "settings": await qbzd.settings_show(),
+            "last_saved": admin.read_state().get("settings_last_saved")}
 
 
 @app.post("/api/qobuz/login", dependencies=[Depends(auth_required)])
@@ -336,6 +364,98 @@ async def volume(request: Request) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Maintenance
+# --------------------------------------------------------------------------
+# Everything here used to require SSH: `make upgrade`, `make restart`,
+# `make logs`, and a hand-written rm for a reset. The wizard exists so that a
+# streamer can be set up and kept running without a terminal, and these are the
+# operations that were missing from it.
+
+@app.get("/api/admin/info", dependencies=[Depends(auth_required)])
+async def admin_info(refresh: bool = False) -> dict:
+    """Maintenance panel state. Every field degrades independently: an offline
+    device must still be able to restart its daemon and read its logs."""
+    out: dict = {"state": admin.read_state()}
+    try:
+        out["daemon"] = await admin.daemon_state()
+    except admin.AdminError as exc:
+        out["daemon"] = {"active": "unknown", "running": False, "error": str(exc)}
+    out["qbzd"] = await admin.versions(force=refresh)
+    return out
+
+
+@app.get("/api/admin/logs", dependencies=[Depends(auth_required)])
+async def admin_logs(unit: str = "qbzd", lines: int = 200) -> Response:
+    try:
+        text = await admin.logs(unit, lines)
+    except admin.AdminError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    # text/plain, not JSON: the browser shows this verbatim in a <pre>, and
+    # round-tripping a few hundred journal lines through JSON buys nothing.
+    return Response(text, media_type="text/plain; charset=utf-8",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/admin/upgrade", dependencies=[Depends(auth_required)])
+async def admin_upgrade() -> dict:
+    try:
+        return await admin.upgrade()
+    except admin.AdminError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+_RESTART_TARGETS = {"daemon", "web", "reboot"}
+
+
+@app.post("/api/admin/restart", dependencies=[Depends(auth_required)])
+async def admin_restart(request: Request) -> dict:
+    body = await request.json()
+    target = str(body.get("target", "daemon"))
+    if target not in _RESTART_TARGETS:
+        raise HTTPException(status_code=400, detail="unknown restart target")
+    try:
+        if target == "daemon":
+            return await admin.restart_daemon()
+        if target == "web":
+            return await admin.restart_web()
+        return await admin.reboot()
+    except admin.AdminError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post("/api/admin/reset", dependencies=[Depends(auth_required)])
+async def admin_reset(request: Request) -> Response:
+    """Factory reset. Requires an explicit confirmation token in the body so a
+    stray POST — or a click on a page left open in another tab — cannot wipe a
+    configured device."""
+    body = await request.json()
+    if str(body.get("confirm", "")) != "RESET":
+        raise HTTPException(status_code=400, detail="confirmation required")
+    try:
+        result = await admin.factory_reset(CONFIG)
+    except admin.AdminError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    # The password file is gone; the in-memory copy has to go too, or this
+    # process would keep enforcing a password that no longer exists and lock
+    # the user out of the wizard they were just sent to.
+    CFG.clear()
+    CFG.update(_load_config())
+
+    resp = JSONResponse(result)
+    resp.delete_cookie(SESSION_COOKIE)
+    return resp
+
+
+@app.post("/api/wizard/complete", dependencies=[Depends(auth_required)])
+async def wizard_complete() -> dict:
+    try:
+        return admin.mark_wizard_done()
+    except admin.AdminError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # --------------------------------------------------------------------------

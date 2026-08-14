@@ -1,8 +1,7 @@
 qbz-pistreamer — a headless Qobuz Connect endpoint for Raspberry Pi
 
 Author
-    Damien CUILLERY, MS C.S.
-    damien.cuillery@gmail.com
+    Damien CUILLERY
 
 Copyright (c) 2026 Damien Cuillery
 Licensed under the MIT License — see LICENSE for the full text.

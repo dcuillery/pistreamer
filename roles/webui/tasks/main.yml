@@ -51,13 +51,18 @@
 # The password is hashed ON the Pi so the plaintext never lands in a file, and
 # never in this repository — which is public.
 
+# 0770, not 0750: the app CREATES files here, it does not merely read them.
+# Both the first-run password claim and the settings ledger write through a
+# temporary file and an atomic rename, and both need write permission on the
+# DIRECTORY to do that — mode on the file itself is not enough. At 0750 the
+# wizard failed with EACCES on a path that looked writable.
 - name: Create the config directory
   ansible.builtin.file:
     path: /etc/pistreamer
     state: directory
     owner: root
     group: "{{ ansible_user }}"
-    mode: "0750"
+    mode: "0770"
 
 - name: Check for an existing config
   ansible.builtin.stat:
@@ -146,6 +151,42 @@
       # Wi-Fi changes need root; this is the narrowest grant that allows them.
       {{ ansible_user }} ALL=(root) NOPASSWD: /usr/local/sbin/pistreamer-net
     validate: "visudo -cf %s"
+
+# --- Privileged maintenance helper ------------------------------------------
+# Same pattern, different surface: installing a binary into /usr/bin, reading a
+# system unit's journal, clearing the seed ledger and rebooting. The helper
+# never accepts a URL from the caller — it builds the download address itself
+# from a fixed repository — because a script that writes a caller-supplied file
+# to /usr/bin/qbzd as root is a root shell with extra steps.
+
+- name: Install the maintenance helper
+  ansible.builtin.copy:
+    src: pistreamer-admin
+    dest: /usr/local/sbin/pistreamer-admin
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Allow the service user to run only that helper
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/pistreamer-admin
+    mode: "0440"
+    owner: root
+    group: root
+    content: |
+      # Managed by pistreamer.
+      # Upgrades, journals, reboot and reset. Narrowest grant that allows them.
+      {{ ansible_user }} ALL=(root) NOPASSWD: /usr/local/sbin/pistreamer-admin
+    validate: "visudo -cf %s"
+
+# curl fetches the release tarball, and `file` is deliberately not used (it is
+# absent on Lite images) — the helper validates the download by running it.
+- name: Ensure the helper's dependencies are present
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+    state: present
 
 # --- Service ----------------------------------------------------------------
 

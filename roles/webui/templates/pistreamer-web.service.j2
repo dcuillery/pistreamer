@@ -10,6 +10,9 @@ User={{ ansible_user }}
 Group={{ ansible_user }}
 WorkingDirectory={{ webui_dir }}
 Environment=PISTREAMER_WEB_CONFIG=/etc/pistreamer/web.json
+# Settings ledger and wizard progress. Separate from web.json so that changing
+# the password never risks rewriting the history, and vice versa.
+Environment=PISTREAMER_STATE=/etc/pistreamer/state.json
 Environment=QBZD_HOST=127.0.0.1:8182
 # Bottom of the volume slider, in dB. The raw DAC scale spans 0 to -127 dB,
 # which would put -63 dB at half travel; this window keeps the travel useful.
