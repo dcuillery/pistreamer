@@ -293,10 +293,29 @@ level really changes, and the stream stays bit-perfect — attenuation happens
 inside the converter, so the samples sent over USB are never altered. It is the
 same mechanism as a TEAC's "variable line output".
 
-This exists because `qbzd` cannot do it on most DACs: its ALSA engine only
-recognises controls named `Master`, `PCM`, `Speaker`, `Headphone` or `Digital`,
-and it applies no software attenuation at all in `hw` + exclusive mode. The
-slider was therefore inert whatever the setting.
+This exists because `qbzd` cannot do it on most DACs. Read from the upstream
+source (`crates/qbz-audio/src/alsa_direct.rs`, `set_hardware_volume`), its ALSA
+volume path has three limits that compound:
+
+- **Control names are hardcoded** to `Master`, `PCM`, `Speaker`, `Headphone`,
+  `Digital`. A converter naming its control anything else — an XMOS interface
+  calls it `XMOS Audio 2.0 Output` — matches nothing and the call returns
+  "No volume control found".
+- **Only selem index 0 is driven** (`SelemId::new(name, 0)`). A card exposing
+  the same control at two indices has them **in series**, so the untouched one
+  decides what you hear.
+- **The mapping is linear on the raw scale** (`min + (max-min) × volume`). On a
+  0–127 / 0 to −127 dB converter that puts half travel at **−64 dB** — silence
+  for practical purposes.
+
+On top of that, `audio.alsa_hardware_volume` defaults to `false` upstream
+("Disabled by default (maximum compatibility)"), and `qbzd` applies no software
+attenuation at all in `hw` + exclusive mode. The slider was therefore inert
+whatever the setting.
+
+It works on the macOS desktop app for a reason that does not transfer:
+`coreaudio_direct.rs` sets the device's CoreAudio volume property, which macOS
+provides for most USB DACs. ALSA has no guaranteed equivalent.
 
 Nothing is hardcoded to one converter. The control is **discovered** — the first
 element exposing `pvolume`, preferring a conventional name when a card has
@@ -318,6 +337,10 @@ The `Volume control` setting chooses between driving the DAC and **locked** —
 fixed output at 0 dB, leaving the volume to your amplifier. Switching to locked
 restores full output first: "fixed" should mean 0 dB, not "frozen wherever the
 slider happened to be".
+
+When the mode is `locked`, the greyed-out slider carries an inline **Unlock the
+volume** action, so the one setting that explains a dead control is reachable
+from the screen showing it rather than only from Settings › Audio.
 
 > One caveat outside our reach: the **Qobuz app's own volume slider still does
 > nothing**. `qbzd` relays the value without applying it, and `locked` does not

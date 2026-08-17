@@ -208,5 +208,6 @@
   "reset.partial": "Réinitialisation terminée avec des erreurs : {errors}",
   "reset.failed": "Échec de la réinitialisation : {error}",
   "footer.last_saved": "Réglages enregistrés le {when}",
-  "footer.never_saved": "Aucun réglage enregistré"
+  "footer.never_saved": "Aucun réglage enregistré",
+  "player.volume_unlock": "Déverrouiller le volume"
 }

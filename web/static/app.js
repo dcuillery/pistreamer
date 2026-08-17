@@ -291,7 +291,27 @@ function renderVolume(s) {
     el.disabled = true;
     el.title = t("player.volume_locked_title");
     w.className = "hint";
-    w.textContent = t("player.volume_locked_hint");
+    w.textContent = t("player.volume_locked_hint") + " ";
+
+    // Unlock from here rather than sending the user hunting through Settings.
+    // This is the one disabled control in the interface whose next action is
+    // unambiguous — the slider is off because a setting says so, and that
+    // setting is one click away. textContent above cleared any previous
+    // button, so this appends exactly one per render.
+    const unlock = document.createElement("button");
+    unlock.type = "button";
+    unlock.className = "linkish";
+    unlock.textContent = t("player.volume_unlock");
+    unlock.addEventListener("click", async () => {
+      unlock.disabled = true;
+      await save("qconnect.volume_mode", "software");
+      // The mixer is read again rather than assumed: unlocking only produces a
+      // usable slider if the DAC actually exposes a control, and the next
+      // render needs to know which of the two it is.
+      await refreshHwVolume();
+    });
+    w.append(unlock);
+
     w.hidden = false;
     return;
   }

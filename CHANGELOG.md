@@ -14,6 +14,18 @@ failure you cannot see is the expensive kind.
 ## [Unreleased]
 ### Added
 
+- **Unlock the volume from the player screen.** When `qconnect.volume_mode` is
+  `locked` the slider is greyed out by design, but the only way to change that
+  was Settings › Audio. The "volume locked" note now carries an inline
+  *Unlock the volume* action that flips the mode in place.
+
+  Worth recording why this was the whole fix: the hardware volume path was
+  never broken on this hardware. Verified on the device — an XMOS USB Audio
+  2.0 DAC reports `available: True, control: 'XMOS Audio 2.0 Output',
+  stages: 2`, and a write at the current level round-trips correctly. The
+  slider was inert because the mode said so, and nothing said so on screen.
+
+
 - **A setup wizard, so a streamer can be built without a terminal.** Five steps
   — network, DAC, Qobuz sign-in, name and quality, summary — shown once on a
   fresh device and re-runnable from Settings › Security. Each step commits

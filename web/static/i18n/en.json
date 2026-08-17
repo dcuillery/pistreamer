@@ -208,5 +208,6 @@
   "reset.partial": "Reset finished with problems: {errors}",
   "reset.failed": "Reset failed: {error}",
   "footer.last_saved": "Settings saved {when}",
-  "footer.never_saved": "No settings saved yet"
+  "footer.never_saved": "No settings saved yet",
+  "player.volume_unlock": "Unlock the volume"
 }
